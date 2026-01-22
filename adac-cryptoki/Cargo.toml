@@ -10,7 +10,7 @@ adac-crypto = { path = "../adac-crypto" }
 adac-crypto-rust = { path = "../adac-crypto-rust" }
 base16ct = "0.2.0"
 base64 = "0.22.1"
-cryptoki = "0.10.0"
+cryptoki = "0.11.0"
 der = { version = "0.7.9", features = ["alloc"] }
 ed25519 = { version = "2.2.3", features = ["alloc", "pkcs8"] }
 ed448 = { version = "0.5.0-pre.0", features = ["alloc", "pkcs8"] }

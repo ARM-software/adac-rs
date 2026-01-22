@@ -9,7 +9,7 @@ adac = { path = "../adac" }
 adac-crypto = { path = "../adac-crypto" }
 adac-crypto-rust = { path = "../adac-crypto-rust" }
 adac-cryptoki = { path = "../adac-cryptoki" }
-cryptoki = "0.10.0"
+cryptoki = "0.11.0"
 base16ct = "0.2.0"
 base64 = "0.22"
 der = { version = "0.7.9", features = ["alloc"] }
