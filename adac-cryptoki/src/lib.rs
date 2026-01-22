@@ -7,7 +7,7 @@ pub mod public;
 
 use adac::KeyOptions::*;
 use adac::{AdacError, KeyOptions};
-use cryptoki::context::{CInitializeArgs, Pkcs11};
+use cryptoki::context::{CInitializeArgs, CInitializeFlags, Pkcs11};
 use cryptoki::mechanism::Mechanism;
 use cryptoki::session::{Session, UserType};
 use cryptoki::slot::Slot;
@@ -21,7 +21,9 @@ pub fn pkcs11_create_session(
     let pkcs11 = Pkcs11::new(module).unwrap();
 
     // initialize the library
-    pkcs11.initialize(CInitializeArgs::OsThreads).unwrap();
+    pkcs11
+        .initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK))
+        .unwrap();
 
     // find a slot, get the first one
     let slots = pkcs11.get_slots_with_token().unwrap();
@@ -44,7 +46,7 @@ pub fn pkcs11_create_session(
 
     // log in the session
     session
-        .login(UserType::User, Some(&AuthPin::new(pin)))
+        .login(UserType::User, Some(&AuthPin::new(pin.into())))
         .unwrap();
 
     (pkcs11, slot, session)
