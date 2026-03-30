@@ -35,8 +35,51 @@ cargo install --path adac-cli
 ```
 
 Most CLI subcommands operate on ADAC certificates or tokens. Add the
-appropriate flags (for example `display`, `sign`, `verify`) as documented
-by the `--help` output.
+appropriate flags (for example `display`, `sign`, `verify`, `token-sign`,
+`token-offline-prepare`, and `token-offline-merge`) as documented by the
+`--help` output.
+
+Token generation uses a TOML config with token-specific fields:
+
+```toml
+[defaults]
+version_major = 1
+version_minor = 0
+requested_permissions = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = ""
+
+[token]
+version_minor = 1
+requested_permissions = "0x0000000003FFFFFFFFFFFFFF00000000"
+extensions = "0x01020304"
+```
+
+Token challenges must be 32 bytes encoded as hex with a `0x` prefix. Token
+files written with `--output` are raw binary for compatibility with existing
+tooling. Then sign a token directly or prepare it for offline signing:
+
+```bash
+cargo run -p adac-cli -- token-sign \
+  --config token.toml \
+  --section token \
+  --private adac-tests/resources/keys/EcdsaP384Key-0.pk8 \
+  --output token.bin \
+  0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+
+cargo run -p adac-cli -- token-offline-prepare \
+  --config token.toml \
+  --key-type EcdsaP384Sha384 \
+  --section token \
+  --output prepared-token.bin \
+  --tbs prepared-token.tbs \
+  --hash prepared-token.hash \
+  0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+
+cargo run -p adac-cli -- verify \
+  --path adac-tests/resources/roots/root.EcdsaP384 \
+  --token token.bin \
+  --challenge 0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+```
 
 ## Testing
 
