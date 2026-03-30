@@ -27,7 +27,7 @@ use misc::{PopReport, PushReport, RotReport};
 use offline::{MergeReport, PrepareReport, merge_command, prepare_command};
 use pkcs11::Pkcs11GenerateReport;
 use sign::SignatureReport;
-use token::TokenSignatureReport;
+use token::{TokenMergeReport, TokenPrepareReport, TokenSignatureReport};
 use verify::VerificationReport;
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -296,6 +296,47 @@ enum Commands {
         #[arg(short, long, value_name = "SECTION")]
         section: Option<String>,
     },
+    /// Prepare an offline token signature.
+    #[command(name = "token-offline-prepare")]
+    TokenSignOfflinePrepare {
+        /// Challenge bytes encoded as hex.
+        #[arg(value_name = "CHALLENGE")]
+        challenge: String,
+        /// Token configuration file (TOML).
+        #[arg(short, long, value_name = "CONFIG")]
+        config: Option<PathBuf>,
+        /// Key type used for the token signature (for example EcdsaP384Sha384).
+        #[arg(long, value_name = "KEYTYPE")]
+        key_type: String,
+        /// Requested permissions (16 bytes hex-encoded value).
+        #[arg(value_name = "PERMISSIONS")]
+        permissions: Option<String>,
+        /// Configuration file section to apply (defaults to [defaults]).
+        #[arg(short, long, value_name = "SECTION")]
+        section: Option<String>,
+        /// Write the (pre-)token to this file.
+        #[arg(short, long, value_name = "OUT")]
+        output: Option<PathBuf>,
+        /// Write the to-be-signed payload (TBS) to this file.
+        #[arg(short, long, value_name = "FILE")]
+        tbs: Option<PathBuf>,
+        /// Write the hash of the TBS payload to this file.
+        #[arg(long, value_name = "FILE")]
+        hash: Option<PathBuf>,
+    },
+    /// Merge an offline token signature.
+    #[command(name = "token-offline-merge")]
+    TokenSignOfflineMerge {
+        /// (Pre-)Token produced by token-offline-prepare.
+        #[arg(short = 'i', long, value_name = "IN")]
+        input: PathBuf,
+        /// Detached signature to merge into the token.
+        #[arg(short, long, value_name = "SIG")]
+        signature: PathBuf,
+        /// Write the resulting token to this file.
+        #[arg(short, long, value_name = "OUT")]
+        output: Option<PathBuf>,
+    },
     /// Verify certificate (chain) content.
     Verify {
         /// Path to the certificate or certificate chain to verify.
@@ -322,6 +363,8 @@ enum CommandOutput {
     SignOfflinePrepare(PrepareReport),
     SignOfflineMerge(MergeReport),
     TokenSign(TokenSignatureReport),
+    TokenSignOfflinePrepare(TokenPrepareReport),
+    TokenSignOfflineMerge(TokenMergeReport),
     Verify(VerificationReport),
 }
 
@@ -498,6 +541,30 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             key_type,
             section,
         ),
+        Commands::TokenSignOfflinePrepare {
+            challenge,
+            config,
+            key_type,
+            permissions,
+            section,
+            output,
+            tbs,
+            hash,
+        } => token::token_prepare_command(
+            config,
+            key_type,
+            challenge,
+            permissions,
+            section,
+            output,
+            tbs,
+            hash,
+        ),
+        Commands::TokenSignOfflineMerge {
+            input,
+            signature,
+            output,
+        } => token::token_merge_command(input, signature, output),
         Commands::Verify {
             path,
             token,
@@ -536,6 +603,12 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
                 }
                 CommandOutput::TokenSign(s) => {
                     s.text_output(&mut stdout)?;
+                }
+                CommandOutput::TokenSignOfflinePrepare(p) => {
+                    p.text_output(&mut stdout)?;
+                }
+                CommandOutput::TokenSignOfflineMerge(m) => {
+                    m.text_output(&mut stdout)?;
                 }
                 CommandOutput::Verify(v) => {
                     v.text_output(&mut stdout)?;

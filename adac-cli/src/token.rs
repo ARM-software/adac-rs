@@ -5,7 +5,7 @@ use crate::{CommandError, CommandOutput, config};
 use adac::token::{self, AdacToken};
 use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
 use adac::{AdacError, KeyOptions, TokenHeader};
-use adac_crypto::utils::load_key;
+use adac_crypto::utils::{convert_signature, load_key};
 use adac_crypto_pkcs11::Pkcs11Provider;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -132,6 +132,174 @@ pub fn token_sign_command(
     }))
 }
 
+#[derive(Debug, Serialize)]
+pub struct TokenPrepareReport {
+    pub token: String,
+    pub tbs: String,
+    pub hash: String,
+    pub token_path: Option<PathBuf>,
+    pub tbs_path: Option<PathBuf>,
+    pub hash_path: Option<PathBuf>,
+}
+
+impl TokenPrepareReport {
+    pub fn text_output(&self, out: &mut dyn Write) -> anyhow::Result<()> {
+        if self.token_path.is_none() {
+            writeln!(out, "{}", self.token)?;
+        }
+        if self.tbs_path.is_none() {
+            writeln!(out, "TBS={}", self.tbs)?;
+        }
+        if self.hash_path.is_none() {
+            writeln!(out, "Hash={}", self.hash)?;
+        }
+        Ok(())
+    }
+}
+
+pub fn token_prepare_command(
+    config: &Option<PathBuf>,
+    key_type: &String,
+    challenge: &String,
+    permissions: &Option<String>,
+    section: &Option<String>,
+    token_path: &Option<PathBuf>,
+    tbs_path: &Option<PathBuf>,
+    hash_path: &Option<PathBuf>,
+) -> anyhow::Result<CommandOutput, CommandError> {
+    let config =
+        if let Some(config) = config {
+            let config = fs::read_to_string(config).map_err(|e| CommandError::FileRead {
+                path: config.clone(),
+                source: e,
+            })?;
+            let config = config::parse_adac_token_configuration(&config, (*section).clone())
+                .map_err(|e| CommandError::AdacError {
+                    source: anyhow::anyhow!("Error parsing configuration file: {:?}", e),
+                })?;
+            Some(config)
+        } else {
+            None
+        };
+
+    let key_type = parse_token_key_type(key_type)?;
+    let challenge = decode_challenge_parameter(challenge)?;
+
+    let (header, extensions) = if let Some(config) = config {
+        let header = build_token_header(&config, key_type);
+        (header, config.extensions.clone())
+    } else {
+        let mut header = TokenHeader::default();
+        header.signature_type = key_type;
+
+        if let Some(permissions) = permissions {
+            let permissions = if let Some(hex) = permissions.strip_prefix("0x") {
+                hex::decode(hex).map_err(|_| CommandError::AdacError {
+                    source: anyhow::anyhow!("Value for 'permissions' is not properly hex encoded."),
+                })?
+            } else {
+                return Err(CommandError::AdacError {
+                    source: anyhow::anyhow!("Value for 'permissions' does not start with '0x'."),
+                });
+            };
+            if permissions.len() != 16 {
+                return Err(CommandError::AdacError {
+                    source: anyhow::anyhow!("Length for 'permissions' is invalid."),
+                });
+            }
+
+            let requested_permissions =
+                u128::from_be_bytes(permissions.as_slice().try_into().unwrap());
+            header
+                .requested_permissions
+                .copy_from_slice(&requested_permissions.to_le_bytes().as_ref());
+        }
+
+        let extensions: Vec<u8> = vec![];
+        (header, extensions)
+    };
+
+    let mut crypto = PrepareCryptoProvider::new(key_type);
+    let token = AdacToken::sign(
+        key_type,
+        header,
+        if !extensions.is_empty() {
+            Some(extensions.as_slice())
+        } else {
+            None
+        },
+        challenge.as_slice(),
+        &mut crypto,
+    )
+    .map_err(|e| CommandError::AdacError {
+        source: anyhow::anyhow!("Error preparing token for signing: {:?}", e),
+    })?;
+
+    write_output(token_path, token.as_slice())?;
+    write_output(tbs_path, crypto.tbs.as_slice())?;
+    write_output(hash_path, crypto.hash.as_slice())?;
+
+    Ok(CommandOutput::TokenSignOfflinePrepare(TokenPrepareReport {
+        token: BASE64_STANDARD.encode(token.as_slice()),
+        tbs: BASE64_STANDARD.encode(crypto.tbs.as_slice()),
+        hash: base16ct::lower::encode_string(crypto.hash.as_slice()),
+        token_path: token_path.clone(),
+        tbs_path: tbs_path.clone(),
+        hash_path: hash_path.clone(),
+    }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct TokenMergeReport {
+    pub token: String,
+    pub path: Option<PathBuf>,
+}
+
+impl TokenMergeReport {
+    pub fn text_output(&self, out: &mut dyn Write) -> anyhow::Result<()> {
+        if self.path.is_none() {
+            writeln!(out, "{}", self.token)?;
+        }
+        Ok(())
+    }
+}
+
+pub fn token_merge_command(
+    input: &PathBuf,
+    signature: &PathBuf,
+    output: &Option<PathBuf>,
+) -> anyhow::Result<CommandOutput, CommandError> {
+    let token = load_token(input).map_err(|e| CommandError::AdacError {
+        source: anyhow::anyhow!("Error loading token: {:?}", e),
+    })?;
+    let signature = fs::read(signature).map_err(|e| CommandError::FileRead {
+        path: signature.clone(),
+        source: e,
+    })?;
+
+    let key_type = token.header().signature_type;
+    let signature = normalize_detached_signature(key_type, signature.as_slice())?;
+    let (_, sig_size) =
+        token::adac_sizes_from_crypto(key_type).map_err(|e| CommandError::AdacError {
+            source: anyhow::anyhow!("Error determining signature size: {:?}", e),
+        })?;
+
+    let sig_offset = token.get_tbs().len();
+    let mut merged = token.to_bytes();
+    merged[sig_offset..(sig_offset + sig_size)].copy_from_slice(signature.as_slice());
+
+    let token = AdacToken::from_bytes(merged).map_err(|e| CommandError::AdacError {
+        source: anyhow::anyhow!("Error rebuilding token: {:?}", e),
+    })?;
+
+    write_output(output, token.as_slice())?;
+
+    Ok(CommandOutput::TokenSignOfflineMerge(TokenMergeReport {
+        token: BASE64_STANDARD.encode(token.as_slice()),
+        path: output.clone(),
+    }))
+}
+
 fn build_token_header(config: &config::AdacTokenConfig, key_type: KeyOptions) -> TokenHeader {
     TokenHeader {
         format_version: config.format_version,
@@ -139,6 +307,11 @@ fn build_token_header(config: &config::AdacTokenConfig, key_type: KeyOptions) ->
         requested_permissions: config.requested_permissions,
         ..Default::default()
     }
+}
+
+pub fn load_token<P: AsRef<std::path::Path>>(path: P) -> Result<AdacToken, AdacError> {
+    let contents = fs::read(path).map_err(|e| AdacError::InputOutput(e.to_string()))?;
+    read_token(contents.as_slice())
 }
 
 pub fn read_token(contents: &[u8]) -> Result<AdacToken, AdacError> {
@@ -165,6 +338,22 @@ pub fn read_token(contents: &[u8]) -> Result<AdacToken, AdacError> {
             }
         }
     }
+}
+
+fn write_output(path: &Option<PathBuf>, contents: &[u8]) -> Result<(), CommandError> {
+    if let Some(path) = path {
+        let mut file = fs::File::create(path).map_err(|e| CommandError::FileWrite {
+            path: path.clone(),
+            source: e,
+        })?;
+        file.write_all(contents)
+            .map_err(|e| CommandError::FileWrite {
+                path: path.clone(),
+                source: e,
+            })?;
+    }
+
+    Ok(())
 }
 
 fn decode_hex_parameter(value: &str, parameter: &str) -> Result<Vec<u8>, CommandError> {
@@ -346,6 +535,79 @@ fn resolve_pkcs11_pin(
     }
 }
 
+fn normalize_detached_signature(
+    key_type: KeyOptions,
+    signature: &[u8],
+) -> Result<Vec<u8>, CommandError> {
+    let (_, sig_size) =
+        token::adac_sizes_from_crypto(key_type).map_err(|e| CommandError::AdacError {
+            source: anyhow::anyhow!("Error determining signature size: {:?}", e),
+        })?;
+    if signature.len() == sig_size {
+        return Ok(signature.to_vec());
+    }
+
+    convert_signature(key_type, signature).map_err(|e| CommandError::AdacError {
+        source: anyhow::anyhow!("Error parsing signature: {:?}", e),
+    })
+}
+
+struct PrepareCryptoProvider {
+    key_type: KeyOptions,
+    hash: Vec<u8>,
+    tbs: Vec<u8>,
+}
+
+impl PrepareCryptoProvider {
+    fn new(key_type: KeyOptions) -> Self {
+        Self {
+            key_type,
+            hash: vec![],
+            tbs: vec![],
+        }
+    }
+}
+
+impl AdacCryptoProvider for PrepareCryptoProvider {
+    fn verify(
+        &self,
+        key_type: KeyOptions,
+        public_key: &[u8],
+        data: &[u8],
+        signature: &[u8],
+    ) -> Result<(), adac::AdacError> {
+        let crypto = adac_crypto_rust::RustCryptoProvider::default();
+        crypto.verify(key_type, public_key, data, signature)
+    }
+
+    fn hash(&self, key_type: KeyOptions, data: &[u8]) -> Result<Vec<u8>, adac::AdacError> {
+        let crypto = adac_crypto_rust::RustCryptoProvider::default();
+        crypto.hash(key_type, data)
+    }
+
+    fn sign(&mut self, key_type: KeyOptions, data: &[u8]) -> Result<Vec<u8>, adac::AdacError> {
+        if self.key_type != key_type {
+            return Err(adac::AdacError::InconsistentCrypto);
+        }
+
+        let (_, sig_size) = token::adac_sizes_from_crypto(key_type)?;
+        self.tbs = data.to_vec();
+        self.hash = self.hash(key_type, data)?;
+
+        Ok(vec![0u8; sig_size])
+    }
+
+    fn load_key(
+        &mut self,
+        key_type: KeyOptions,
+        format: AdacKeyFormat,
+        key: &[u8],
+    ) -> Result<Vec<u8>, adac::AdacError> {
+        let mut crypto = adac_crypto_rust::RustCryptoProvider::default();
+        crypto.load_key(key_type, format, key)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -404,7 +666,7 @@ extensions = "0x01020304"
         let CommandOutput::TokenSign(report) = output else {
             panic!("unexpected command output");
         };
-        let token = AdacToken::from_bytes(BASE64_STANDARD.decode(report.token).unwrap()).unwrap();
+        let token = AdacToken::from_bytes(BASE64_STANDARD.decode(&report.token).unwrap()).unwrap();
         let (key_type, private_key) = load_key(private).unwrap();
         let public_key = get_public_key(key_type, &private_key).unwrap();
         let crypto = adac_crypto_rust::RustCryptoProvider::default();
@@ -452,7 +714,7 @@ extensions = "0x01020304"
         let CommandOutput::TokenSign(report) = output else {
             panic!("unexpected command output");
         };
-        let token = AdacToken::from_bytes(BASE64_STANDARD.decode(report.token).unwrap()).unwrap();
+        let token = AdacToken::from_bytes(BASE64_STANDARD.decode(&report.token).unwrap()).unwrap();
         let (key_type, private_key) = load_key(private).unwrap();
         let public_key = get_public_key(key_type, &private_key).unwrap();
         let crypto = adac_crypto_rust::RustCryptoProvider::default();
@@ -470,6 +732,182 @@ extensions = "0x01020304"
             0x0000000003FFFFFFFFFFFFFF00000000u128.to_le_bytes()
         );
         assert_eq!(token.get_extensions(), hex::decode("01020304").unwrap());
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn token_offline_prepare_and_merge_round_trip() {
+        let dir = shared::make_temp_dir("adac-cli-token-tests");
+        let config_path = write_config(&dir);
+        let private = fixture_key_path("EcdsaP384Key-0.pk8");
+        let prepared_path = dir.join("prepared.bin");
+        let merged_path = dir.join("merged.pem");
+        let tbs_path = dir.join("prepared.tbs");
+        let hash_path = dir.join("prepared.hash");
+        let signature_path = dir.join("signature.bin");
+        let challenge = TOKEN_CHALLENGE.to_string();
+        let key_type = "EcdsaP384Sha384".to_string();
+
+        let output = token_prepare_command(
+            &Some(config_path),
+            &key_type,
+            &challenge,
+            &None,
+            &Some("token".to_string()),
+            &Some(prepared_path.clone()),
+            &Some(tbs_path.clone()),
+            &Some(hash_path.clone()),
+        )
+        .unwrap();
+
+        let CommandOutput::TokenSignOfflinePrepare(report) = output else {
+            panic!("unexpected command output");
+        };
+        assert_eq!(report.token_path, Some(prepared_path.clone()));
+        assert!(hash_path.exists());
+        assert!(
+            !fs::read(&prepared_path)
+                .unwrap()
+                .starts_with(b"-----BEGIN ADAC TOKEN-----")
+        );
+        load_token(&prepared_path).unwrap();
+
+        let (detected_key_type, private_key) = load_key(private).unwrap();
+        let mut crypto = adac_crypto_rust::RustCryptoProvider::default();
+        crypto
+            .load_key(
+                detected_key_type,
+                AdacKeyFormat::Pkcs8,
+                private_key.as_slice(),
+            )
+            .unwrap();
+
+        let signature = crypto
+            .sign(detected_key_type, fs::read(&tbs_path).unwrap().as_slice())
+            .unwrap();
+        fs::write(&signature_path, signature).unwrap();
+
+        let output =
+            token_merge_command(&prepared_path, &signature_path, &Some(merged_path.clone()))
+                .unwrap();
+        let CommandOutput::TokenSignOfflineMerge(report) = output else {
+            panic!("unexpected command output");
+        };
+        assert_eq!(report.path, Some(merged_path.clone()));
+        let token = AdacToken::from_bytes(BASE64_STANDARD.decode(&report.token).unwrap()).unwrap();
+        let public_key = get_public_key(detected_key_type, &private_key).unwrap();
+        let crypto = adac_crypto_rust::RustCryptoProvider::default();
+        let challenge = decode_hex_parameter(&challenge, "--challenge").unwrap();
+
+        token
+            .verify(public_key.as_slice(), challenge.as_slice(), &crypto)
+            .unwrap();
+        load_token(&merged_path).unwrap();
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn token_sign_command_rejects_mismatched_key_type() {
+        let dir = shared::make_temp_dir("adac-cli-token-tests");
+        let config_path = write_config(&dir);
+        let private = fixture_key_path("EcdsaP384Key-0.pk8");
+        let challenge = TOKEN_CHALLENGE.to_string();
+
+        let err = token_sign_command(
+            &challenge,
+            &Some(config_path),
+            &None,
+            &Some(private),
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &Some("Rsa3072Sha256".to_string()),
+            &Some("token".to_string()),
+        )
+        .unwrap_err();
+
+        match err {
+            CommandError::AdacError { source } => {
+                assert!(
+                    source
+                        .to_string()
+                        .contains("does not match private key type")
+                );
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn token_sign_command_writes_raw_bytes_to_disk() {
+        let dir = shared::make_temp_dir("adac-cli-token-tests");
+        let config_path = write_config(&dir);
+        let private = fixture_key_path("EcdsaP384Key-0.pk8");
+        let output_path = dir.join("token.bin");
+
+        let output = token_sign_command(
+            &TOKEN_CHALLENGE.to_string(),
+            &Some(config_path),
+            &Some(output_path.clone()),
+            &Some(private),
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &Some("token".to_string()),
+        )
+        .unwrap();
+
+        let CommandOutput::TokenSign(report) = output else {
+            panic!("unexpected command output");
+        };
+        assert_eq!(report.path, Some(output_path.clone()));
+        load_token(&output_path).unwrap();
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn token_sign_command_rejects_non_32_byte_challenge() {
+        let dir = shared::make_temp_dir("adac-cli-token-tests");
+        let config_path = write_config(&dir);
+        let private = fixture_key_path("EcdsaP384Key-0.pk8");
+
+        let err = token_sign_command(
+            &"0x00112233".to_string(),
+            &Some(config_path),
+            &None,
+            &Some(private),
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &Some("token".to_string()),
+        )
+        .unwrap_err();
+
+        match err {
+            CommandError::InvalidParameter { parameter } => {
+                assert_eq!(parameter, "--challenge");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
 
         let _ = fs::remove_dir_all(dir);
     }
