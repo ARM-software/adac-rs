@@ -209,7 +209,7 @@ pub fn prepare_command(
     let crt_path = crt_path.clone();
     let tbs_path = tbs_path.clone();
     let hash_path = hash_path.clone();
-    Ok(CommandOutput::OfflinePrepare(PrepareReport {
+    Ok(CommandOutput::SignOfflinePrepare(PrepareReport {
         certificate,
         tbs,
         hash,
@@ -345,7 +345,7 @@ pub fn merge_command(
             })?;
     }
     let path = output.clone();
-    Ok(CommandOutput::OfflineMerge(MergeReport {
+    Ok(CommandOutput::SignOfflineMerge(MergeReport {
         certificate,
         path,
     }))

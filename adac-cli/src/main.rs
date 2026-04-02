@@ -211,15 +211,9 @@ enum Commands {
         #[arg(short, long, value_name = "SECTION")]
         section: Option<String>,
     },
-    /// Verify certificate (chain) content.
-    Verify {
-        /// Path to the certificate or certificate chain to verify.
-        #[arg(short, long, value_name = "PATH")]
-        path: PathBuf,
-    },
     /// Prepare an offline certificate signature.
-    #[command(name = "offline-prepare")]
-    OfflinePrepare {
+    #[command(name = "sign-offline-prepare", alias = "offline-prepare")]
+    SignOfflinePrepare {
         /// Signing configuration file (TOML).
         #[arg(short, long, value_name = "CONFIG")]
         config: PathBuf,
@@ -240,8 +234,8 @@ enum Commands {
         hash: Option<PathBuf>,
     },
     /// Merge an offline signature.
-    #[command(name = "offline-merge")]
-    OfflineMerge {
+    #[command(name = "sign-offline-merge", alias = "offline-merge")]
+    SignOfflineMerge {
         /// Issuer certificate chain to prepend the signed certificate to.
         #[arg(short, long, value_name = "CHAIN")]
         issuer: Option<PathBuf>,
@@ -255,6 +249,12 @@ enum Commands {
         #[arg(short, long, value_name = "SIG")]
         signature: PathBuf,
     },
+    /// Verify certificate (chain) content.
+    Verify {
+        /// Path to the certificate or certificate chain to verify.
+        #[arg(short, long, value_name = "PATH")]
+        path: PathBuf,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -266,9 +266,9 @@ enum CommandOutput {
     Push(PushReport),
     RotHash(RotReport),
     Sign(SignatureReport),
+    SignOfflinePrepare(PrepareReport),
+    SignOfflineMerge(MergeReport),
     Verify(VerificationReport),
-    OfflinePrepare(PrepareReport),
-    OfflineMerge(MergeReport),
 }
 
 #[derive(Debug, Error)]
@@ -401,8 +401,7 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             config, issuer, output, private, module, label, pin, pin_file, pin_env, key_id, request,
             section,
         ),
-        Commands::Verify { path } => verify::verify_command(path),
-        Commands::OfflinePrepare {
+        Commands::SignOfflinePrepare {
             config,
             request,
             section,
@@ -410,12 +409,13 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             tbs,
             hash,
         } => prepare_command(config, request, section, output, tbs, hash),
-        Commands::OfflineMerge {
+        Commands::SignOfflineMerge {
             issuer,
             output,
             request,
             signature,
         } => merge_command(issuer, output, request, signature),
+        Commands::Verify { path } => verify::verify_command(path),
     }
     .with_context(|| format!("{:?} command failed", cli.cmd))?;
 
@@ -441,14 +441,14 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
                 CommandOutput::Sign(s) => {
                     s.text_output(&mut stdout)?;
                 }
-                CommandOutput::Verify(v) => {
-                    v.text_output(&mut stdout)?;
-                }
-                CommandOutput::OfflinePrepare(p) => {
+                CommandOutput::SignOfflinePrepare(p) => {
                     p.text_output(&mut stdout)?;
                 }
-                CommandOutput::OfflineMerge(m) => {
+                CommandOutput::SignOfflineMerge(m) => {
                     m.text_output(&mut stdout)?;
+                }
+                CommandOutput::Verify(v) => {
+                    v.text_output(&mut stdout)?;
                 }
             }
         }
