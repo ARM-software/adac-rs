@@ -301,6 +301,12 @@ enum Commands {
         /// Path to the certificate or certificate chain to verify.
         #[arg(short, long, value_name = "PATH")]
         path: PathBuf,
+        /// Path to an authentication token to verify against the leaf certificate public key.
+        #[arg(short, long, value_name = "TOKEN")]
+        token: Option<PathBuf>,
+        /// Challenge bytes encoded as hex for token verification.
+        #[arg(short, long, value_name = "CHALLENGE")]
+        challenge: Option<String>,
     },
 }
 
@@ -492,7 +498,11 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             key_type,
             section,
         ),
-        Commands::Verify { path } => verify::verify_command(path),
+        Commands::Verify {
+            path,
+            token,
+            challenge,
+        } => verify::verify_command(path, token, challenge),
     }
     .with_context(|| format!("{:?} command failed", cli.cmd))?;
 

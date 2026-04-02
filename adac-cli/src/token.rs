@@ -4,7 +4,7 @@
 use crate::{CommandError, CommandOutput, config};
 use adac::token::{self, AdacToken};
 use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
-use adac::{KeyOptions, TokenHeader};
+use adac::{AdacError, KeyOptions, TokenHeader};
 use adac_crypto::utils::load_key;
 use adac_crypto_pkcs11::Pkcs11Provider;
 use base64::Engine;
@@ -138,6 +138,32 @@ fn build_token_header(config: &config::AdacTokenConfig, key_type: KeyOptions) ->
         signature_type: key_type,
         requested_permissions: config.requested_permissions,
         ..Default::default()
+    }
+}
+
+pub fn read_token(contents: &[u8]) -> Result<AdacToken, AdacError> {
+    let bytes = if let Ok(pem) = pem::parse(contents) {
+        if pem.tag().eq("ADAC TOKEN") {
+            pem.contents().to_vec()
+        } else {
+            contents.to_vec()
+        }
+    } else {
+        contents.to_vec()
+    };
+
+    match AdacToken::from_bytes(bytes) {
+        Ok(token) => Ok(token),
+        Err(raw_error) => {
+            if let Ok(text) = std::str::from_utf8(contents) {
+                let decoded = BASE64_STANDARD
+                    .decode(text.trim())
+                    .map_err(|e| AdacError::Encoding(e.to_string()))?;
+                AdacToken::from_bytes(decoded)
+            } else {
+                Err(raw_error)
+            }
+        }
     }
 }
 
