@@ -6,7 +6,10 @@ mod display;
 mod misc;
 mod offline;
 mod pkcs11;
+#[cfg(test)]
+mod shared;
 mod sign;
+mod token;
 mod verify;
 
 use anyhow::{Context, Result};
@@ -24,6 +27,7 @@ use misc::{PopReport, PushReport, RotReport};
 use offline::{MergeReport, PrepareReport, merge_command, prepare_command};
 use pkcs11::Pkcs11GenerateReport;
 use sign::SignatureReport;
+use token::TokenSignatureReport;
 use verify::VerificationReport;
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
@@ -249,6 +253,49 @@ enum Commands {
         #[arg(short, long, value_name = "SIG")]
         signature: PathBuf,
     },
+    /// Sign an authentication token.
+    #[command(name = "token-sign", alias = "token")]
+    TokenSign {
+        /// Token challenge (32 bytes hex-encoded value).
+        #[arg(value_name = "CHALLENGE")]
+        challenge: String,
+        /// Token configuration file (TOML).
+        #[arg(short, long, value_name = "CONFIG")]
+        config: Option<PathBuf>,
+        /// Write the resulting token to this file.
+        #[arg(short, long, value_name = "OUT")]
+        output: Option<PathBuf>,
+        /// Signing private key in PKCS#8 format (required unless --key-id is used).
+        #[arg(short, long, value_name = "KEY")]
+        private: Option<PathBuf>,
+        /// PKCS#11 provider library to load when using --key-id.
+        #[arg(short, long, value_name = "LIBRARY")]
+        module: Option<String>,
+        /// Slot label identifying the PKCS#11 token. Defaults to $PKCS11_SLOT.
+        #[arg(long, value_name = "LABEL")]
+        label: Option<String>,
+        /// Requested permissions (16 bytes hex-encoded value).
+        #[arg(value_name = "PERMISSIONS")]
+        permissions: Option<String>,
+        /// User PIN for the PKCS#11 slot. Defaults to --pin-file/--pin-env or $PKCS11_PIN.
+        #[arg(long, value_name = "PIN")]
+        pin: Option<String>,
+        /// Read the PKCS#11 user PIN from this file.
+        #[arg(long, value_name = "FILE")]
+        pin_file: Option<String>,
+        /// Read the PKCS#11 user PIN from the named environment variable (defaults to PKCS11_PIN).
+        #[arg(long, value_name = "ENV")]
+        pin_env: Option<String>,
+        /// PKCS#11 key identifier to use for signing.
+        #[arg(short, long, value_name = "KEYID")]
+        key_id: Option<String>,
+        /// Key type to sign with when using --key-id. If provided with --private, it must match the private key.
+        #[arg(long, value_name = "KEYTYPE")]
+        key_type: Option<String>,
+        /// Configuration file section to apply (defaults to [defaults]).
+        #[arg(short, long, value_name = "SECTION")]
+        section: Option<String>,
+    },
     /// Verify certificate (chain) content.
     Verify {
         /// Path to the certificate or certificate chain to verify.
@@ -268,6 +315,7 @@ enum CommandOutput {
     Sign(SignatureReport),
     SignOfflinePrepare(PrepareReport),
     SignOfflineMerge(MergeReport),
+    TokenSign(TokenSignatureReport),
     Verify(VerificationReport),
 }
 
@@ -398,8 +446,8 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             request,
             section,
         } => sign::sign_command(
-            config, issuer, output, private, module, label, pin, pin_file, pin_env, key_id, request,
-            section,
+            config, issuer, output, private, module, label, pin, pin_file, pin_env, key_id,
+            request, section,
         ),
         Commands::SignOfflinePrepare {
             config,
@@ -415,6 +463,35 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             request,
             signature,
         } => merge_command(issuer, output, request, signature),
+        Commands::TokenSign {
+            challenge,
+            config,
+            output,
+            private,
+            module,
+            label,
+            permissions,
+            pin,
+            pin_file,
+            pin_env,
+            key_id,
+            key_type,
+            section,
+        } => token::token_sign_command(
+            challenge,
+            config,
+            output,
+            private,
+            module,
+            label,
+            permissions,
+            pin,
+            pin_file,
+            pin_env,
+            key_id,
+            key_type,
+            section,
+        ),
         Commands::Verify { path } => verify::verify_command(path),
     }
     .with_context(|| format!("{:?} command failed", cli.cmd))?;
@@ -446,6 +523,9 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
                 }
                 CommandOutput::SignOfflineMerge(m) => {
                     m.text_output(&mut stdout)?;
+                }
+                CommandOutput::TokenSign(s) => {
+                    s.text_output(&mut stdout)?;
                 }
                 CommandOutput::Verify(v) => {
                     v.text_output(&mut stdout)?;
