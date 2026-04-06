@@ -18,6 +18,13 @@ pub struct AdacCertificateConfig {
     pub extensions: Vec<u8>,
 }
 
+#[derive(Debug, PartialEq)]
+pub struct AdacTokenConfig {
+    pub format_version: AdacVersion,
+    pub requested_permissions: [u8; 16],
+    pub extensions: Vec<u8>,
+}
+
 pub fn parse_adac_configuration(
     config: &str,
     section: Option<String>,
@@ -458,6 +465,177 @@ pub fn parse_adac_configuration(
     Ok(c)
 }
 
+pub fn parse_adac_token_configuration(
+    config: &str,
+    section: Option<String>,
+) -> Result<AdacTokenConfig, AdacError> {
+    let cfg = config
+        .parse::<Table>()
+        .map_err(|e| AdacError::Encoding(format!("Error parsing configuration: {}", e)))?;
+
+    let defaults = cfg
+        .get("defaults")
+        .ok_or(AdacError::Encoding("Missing defaults section".to_string()))?;
+    if !defaults.is_table() {
+        return Err(AdacError::Encoding(
+            "Key 'defaults' is not a section".to_string(),
+        ));
+    }
+
+    let version_major = defaults
+        .get("version_major")
+        .ok_or(AdacError::Encoding(
+            "Missing default 'version_major' value".to_string(),
+        ))?
+        .as_integer()
+        .ok_or(AdacError::Encoding(
+            "Value for default 'version_major' is not integer".to_string(),
+        ))?;
+    let version_minor = defaults
+        .get("version_minor")
+        .ok_or(AdacError::Encoding(
+            "Missing default 'version_minor' value".to_string(),
+        ))?
+        .as_integer()
+        .ok_or(AdacError::Encoding(
+            "Value for default 'version_minor' is not integer".to_string(),
+        ))?;
+    if version_major != 1 || !(0..=1).contains(&version_minor) {
+        return Err(AdacError::Encoding(
+            "Invalid values for version".to_string(),
+        ));
+    }
+
+    let requested_permissions = defaults
+        .get("requested_permissions")
+        .ok_or(AdacError::Encoding(
+            "Missing default 'requested_permissions' value".to_string(),
+        ))?
+        .as_str()
+        .ok_or(AdacError::Encoding(
+            "Value for default 'requested_permissions' is not String".to_string(),
+        ))?;
+    let requested_permissions =
+        parse_permissions_field(requested_permissions, "default 'requested_permissions'")?;
+
+    let extensions = parse_optional_extensions(defaults, "default 'extensions'")?;
+
+    let mut c = AdacTokenConfig {
+        format_version: AdacVersion {
+            major: version_major as u8,
+            minor: version_minor as u8,
+        },
+        requested_permissions,
+        extensions,
+    };
+
+    let section = match section {
+        Some(s) => s,
+        None => return Ok(c),
+    };
+
+    let sec = cfg
+        .get(section.as_str())
+        .ok_or(AdacError::Encoding(format!(
+            "Unknown section '{}'",
+            section
+        )))?;
+    if !sec.is_table() {
+        return Err(AdacError::Encoding(format!(
+            "Key '{}' is not section",
+            section
+        )));
+    }
+
+    if let Some(version_major) = sec.get("version_major") {
+        let major = version_major.as_integer().ok_or(AdacError::Encoding(
+            "Value for 'version_major' is not integer".to_string(),
+        ))?;
+        if !(0..=1).contains(&major) {
+            return Err(AdacError::Encoding(
+                "Invalid values for version_major".to_string(),
+            ));
+        }
+        c.format_version.major = major as u8;
+    }
+    if let Some(version_minor) = sec.get("version_minor") {
+        let minor = version_minor.as_integer().ok_or(AdacError::Encoding(
+            "Value for 'version_minor' is not integer".to_string(),
+        ))?;
+        if !(0..=1).contains(&minor) {
+            return Err(AdacError::Encoding(
+                "Invalid values for version_minor".to_string(),
+            ));
+        }
+        c.format_version.minor = minor as u8;
+    }
+    if c.format_version.major != 1 || c.format_version.minor > 1 {
+        return Err(AdacError::Encoding(
+            "Invalid values for version".to_string(),
+        ));
+    }
+
+    if let Some(requested_permissions) = sec.get("requested_permissions") {
+        let requested_permissions = requested_permissions.as_str().ok_or(AdacError::Encoding(
+            "Value for 'requested_permissions' is not String".to_string(),
+        ))?;
+        c.requested_permissions =
+            parse_permissions_field(requested_permissions, "'requested_permissions'")?;
+    }
+
+    if sec.get("extensions").is_some() {
+        c.extensions = parse_optional_extensions(sec, "'extensions'")?;
+    }
+
+    Ok(c)
+}
+
+fn parse_permissions_field(value: &str, field: &str) -> Result<[u8; 16], AdacError> {
+    let permissions = if let Some(hex) = value.strip_prefix("0x") {
+        hex::decode(hex).map_err(|_| {
+            AdacError::Encoding(format!("Value for {} is not properly hex encoded", field))
+        })?
+    } else {
+        return Err(AdacError::Encoding(format!(
+            "Value for {} does not start with '0x'",
+            field
+        )));
+    };
+    if permissions.len() != 16 {
+        return Err(AdacError::Encoding(format!(
+            "Length for {} is invalid",
+            field
+        )));
+    }
+
+    let permissions = u128::from_be_bytes(permissions.as_slice().try_into().unwrap());
+    Ok(permissions.to_le_bytes())
+}
+
+fn parse_optional_extensions(table: &Value, field: &str) -> Result<Vec<u8>, AdacError> {
+    let Some(extensions) = table.get("extensions") else {
+        return Ok(vec![]);
+    };
+    let extensions = extensions.as_str().ok_or(AdacError::Encoding(format!(
+        "Value for {} is not String",
+        field
+    )))?;
+    if extensions.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let Some(hex) = extensions.strip_prefix("0x") else {
+        return Err(AdacError::Encoding(format!(
+            "Value for {} does not start with '0x'",
+            field
+        )));
+    };
+
+    hex::decode(hex).map_err(|_| {
+        AdacError::Encoding(format!("Value for {} is not properly hex encoded", field))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -529,5 +707,69 @@ extensions = "0x0102030405060708090a0b0c0d0e0f"
             c.extensions,
             hex::decode("0102030405060708090a0b0c0d0e0f").unwrap()
         );
+    }
+
+    #[test]
+    fn token_config() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 0
+requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+
+[token]
+version_minor = 1
+requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = "0x01020304"
+"#;
+
+        let c = parse_adac_token_configuration(config, None).unwrap();
+        assert_eq!(c.format_version, AdacVersion { major: 1, minor: 0 });
+        assert_eq!(
+            c.requested_permissions,
+            0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFFu128.to_le_bytes()
+        );
+        assert!(c.extensions.is_empty());
+
+        let c = parse_adac_token_configuration(config, Some("token".to_string())).unwrap();
+        assert_eq!(c.format_version, AdacVersion { major: 1, minor: 1 });
+        assert_eq!(
+            c.requested_permissions,
+            0x00000000FFFFFFFFFFFFFFFFFFFFFFFFu128.to_le_bytes()
+        );
+        assert_eq!(c.extensions, hex::decode("01020304").unwrap());
+    }
+
+    #[test]
+    fn token_config_requires_requested_permissions() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 0
+"#;
+
+        let err = parse_adac_token_configuration(config, None).unwrap_err();
+        assert!(matches!(
+            err,
+            AdacError::Encoding(message)
+                if message == "Missing default 'requested_permissions' value"
+        ));
+    }
+
+    #[test]
+    fn token_config_rejects_invalid_requested_permissions_length() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 0
+requested_permissions = "0xAA"
+"#;
+
+        let err = parse_adac_token_configuration(config, None).unwrap_err();
+        assert!(matches!(
+            err,
+            AdacError::Encoding(message)
+                if message == "Length for default 'requested_permissions' is invalid"
+        ));
     }
 }

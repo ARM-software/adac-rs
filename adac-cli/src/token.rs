@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2025, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-use crate::{CommandError, CommandOutput};
+use crate::{CommandError, CommandOutput, config};
 use adac::token::{self, AdacToken};
 use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
 use adac::{KeyOptions, TokenHeader};
@@ -32,7 +32,7 @@ impl TokenSignatureReport {
 
 pub fn token_sign_command(
     challenge: &String,
-    _config: &Option<PathBuf>,
+    config: &Option<PathBuf>,
     output: &Option<PathBuf>,
     private: &Option<PathBuf>,
     module: &Option<String>,
@@ -43,15 +43,32 @@ pub fn token_sign_command(
     pin_env: &Option<String>,
     key_id: &Option<String>,
     key_type: &Option<String>,
-    _section: &Option<String>,
+    section: &Option<String>,
 ) -> anyhow::Result<CommandOutput, CommandError> {
+    let config =
+        if let Some(config) = config {
+            let config = fs::read_to_string(config).map_err(|e| CommandError::FileRead {
+                path: config.clone(),
+                source: e,
+            })?;
+            let config = config::parse_adac_token_configuration(&config, (*section).clone())
+                .map_err(|e| CommandError::AdacError {
+                    source: anyhow::anyhow!("Error parsing configuration file: {:?}", e),
+                })?;
+            Some(config)
+        } else {
+            None
+        };
     let challenge = decode_challenge_parameter(challenge)?;
 
     let (key_type, mut crypto) = load_signing_provider(
         private, module, label, pin, pin_file, pin_env, key_id, key_type,
     )?;
 
-    let (header, extensions) = {
+    let (header, extensions) = if let Some(config) = config {
+        let header = build_token_header(&config, key_type);
+        (header, config.extensions.clone())
+    } else {
         let mut header = TokenHeader::default();
         header.signature_type = key_type;
 
@@ -113,6 +130,15 @@ pub fn token_sign_command(
         token: BASE64_STANDARD.encode(token.as_slice()),
         path: output.clone(),
     }))
+}
+
+fn build_token_header(config: &config::AdacTokenConfig, key_type: KeyOptions) -> TokenHeader {
+    TokenHeader {
+        format_version: config.format_version,
+        signature_type: key_type,
+        requested_permissions: config.requested_permissions,
+        ..Default::default()
+    }
 }
 
 fn decode_hex_parameter(value: &str, parameter: &str) -> Result<Vec<u8>, CommandError> {
@@ -300,6 +326,17 @@ mod tests {
     use crate::shared;
     use adac_crypto::utils::get_public_key;
 
+    const TOKEN_CONFIG: &str = r#"
+[defaults]
+version_major = 1
+version_minor = 0
+requested_permissions = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+
+[token]
+version_minor = 1
+requested_permissions = "0x0000000003FFFFFFFFFFFFFF00000000"
+extensions = "0x01020304"
+"#;
     const TOKEN_CHALLENGE: &str =
         "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 
@@ -307,6 +344,12 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../adac-tests/resources/keys")
             .join(name)
+    }
+
+    fn write_config(dir: &PathBuf) -> PathBuf {
+        let path = dir.join("token.toml");
+        fs::write(&path, TOKEN_CONFIG).unwrap();
+        path
     }
 
     #[test]
@@ -352,6 +395,55 @@ mod tests {
             header.requested_permissions,
             0x0000000003FFFFFFFFFFFFFF00000000u128.to_le_bytes()
         );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn token_sign_command_generates_verifiable_token_config() {
+        let dir = shared::make_temp_dir("adac-cli-token-tests");
+        let config_path = write_config(&dir);
+        let private = fixture_key_path("EcdsaP384Key-0.pk8");
+        let challenge = TOKEN_CHALLENGE.to_string();
+
+        let output = token_sign_command(
+            &challenge,
+            &Some(config_path),
+            &None,
+            &Some(private.clone()),
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &Some("token".to_string()),
+        )
+        .unwrap();
+
+        let CommandOutput::TokenSign(report) = output else {
+            panic!("unexpected command output");
+        };
+        let token = AdacToken::from_bytes(BASE64_STANDARD.decode(report.token).unwrap()).unwrap();
+        let (key_type, private_key) = load_key(private).unwrap();
+        let public_key = get_public_key(key_type, &private_key).unwrap();
+        let crypto = adac_crypto_rust::RustCryptoProvider::default();
+        let challenge = decode_hex_parameter(&challenge, "--challenge").unwrap();
+
+        token
+            .verify(public_key.as_slice(), challenge.as_slice(), &crypto)
+            .unwrap();
+
+        let header = *token.header();
+        assert_eq!(header.format_version.major, 1);
+        assert_eq!(header.format_version.minor, 1);
+        assert_eq!(
+            header.requested_permissions,
+            0x0000000003FFFFFFFFFFFFFF00000000u128.to_le_bytes()
+        );
+        assert_eq!(token.get_extensions(), hex::decode("01020304").unwrap());
 
         let _ = fs::remove_dir_all(dir);
     }
