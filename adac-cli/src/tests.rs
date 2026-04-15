@@ -1,19 +1,13 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-#[cfg(test)]
 use std::fs;
-#[cfg(test)]
 use std::path::PathBuf;
-#[cfg(test)]
 use std::sync::atomic::{AtomicU64, Ordering};
-#[cfg(test)]
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[cfg(test)]
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-#[cfg(test)]
 pub fn make_temp_dir(prefix: &str) -> PathBuf {
     let test_name = std::thread::current()
         .name()

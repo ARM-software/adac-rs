@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 use crate::{CommandError, CommandOutput};
@@ -31,7 +31,7 @@ impl Pkcs11GenerateReport {
 pub fn pkcs11_generate_command(
     key_type: &String,
     module: &Option<String>,
-    label: &Option<String>,
+    slot: &Option<String>,
     pin: &Option<String>,
     pin_file: &Option<String>,
     pin_env: &Option<String>,
@@ -65,8 +65,8 @@ pub fn pkcs11_generate_command(
         });
     };
 
-    let label = if let Some(l) = label {
-        Some(l.clone())
+    let slot = if let Some(slot) = slot {
+        Some(slot.clone())
     } else {
         std::env::var("PKCS11_SLOT").ok()
     };
@@ -90,7 +90,7 @@ pub fn pkcs11_generate_command(
         });
     };
 
-    let mut crypto = Pkcs11Provider::new(module, pin, label);
+    let mut crypto = Pkcs11Provider::new(module, pin, slot);
     let (kid, _, spki, _, _) =
         crypto
             .generate_key(key_type)

@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 mod config;
@@ -6,9 +6,9 @@ mod display;
 mod misc;
 mod offline;
 mod pkcs11;
-#[cfg(test)]
-mod shared;
 mod sign;
+#[cfg(test)]
+mod tests;
 mod token;
 mod verify;
 
@@ -114,8 +114,8 @@ enum Commands {
     #[command(version, about, long_about = None)]
     Display {
         /// Path to the certificate or certificate chain to display.
-        #[arg(short, long, value_name = "PATH")]
-        path: PathBuf,
+        #[arg(value_name = "INPUT")]
+        input: PathBuf,
         /// Show only the leaf certificate.
         #[arg(short, long)]
         leaf: bool,
@@ -127,14 +127,14 @@ enum Commands {
     #[command(name = "pkcs11-keygen")]
     Pkcs11 {
         /// Key type to generate (e.g. EcdsaP384Sha384, Rsa4096Sha256).
-        #[arg(short, long, value_name = "TYPE")]
+        #[arg(value_name = "KEY_TYPE")]
         key_type: String,
         /// Path to the PKCS#11 provider library. Defaults to $PKCS11_MODULE.
         #[arg(short, long, value_name = "LIBRARY")]
         module: Option<String>,
         /// Slot label identifying the token. Defaults to $PKCS11_SLOT.
-        #[arg(short, long, value_name = "LABEL")]
-        label: Option<String>,
+        #[arg(short, long = "slot", value_name = "SLOT_LABEL")]
+        slot: Option<String>,
         /// User PIN for the slot. Defaults to --pin-file/--pin-env or $PKCS11_PIN.
         #[arg(long, value_name = "PIN")]
         pin: Option<String>,
@@ -148,8 +148,8 @@ enum Commands {
     /// Extract the last certificate in a chain.
     Pop {
         /// Path to the certificate or certificate chain.
-        #[arg(short, long, value_name = "PATH")]
-        path: PathBuf,
+        #[arg(value_name = "INPUT")]
+        input: PathBuf,
         /// Write the extracted certificate to this file instead of stdout.
         #[arg(short, long, value_name = "OUT")]
         output: Option<PathBuf>,
@@ -160,8 +160,8 @@ enum Commands {
         #[arg(value_name = "CHAIN")]
         chain: PathBuf,
         /// Path to the additional certificate or certificate chain.
-        #[arg(value_name = "PATH")]
-        path: PathBuf,
+        #[arg(value_name = "INPUT")]
+        input: PathBuf,
         /// Write the resulting certificate chain to this file instead of stdout.
         #[arg(short, long, value_name = "OUT")]
         output: Option<PathBuf>,
@@ -170,8 +170,8 @@ enum Commands {
     #[command(name = "rot-hash")]
     RotHash {
         /// Path to the certificate or certificate chain.
-        #[arg(short, long, value_name = "PATH")]
-        path: PathBuf,
+        #[arg(value_name = "INPUT")]
+        input: PathBuf,
         /// Hash algorithm: sha256 (default), sha384 or sha512
         #[arg(long, value_name = "ALGO", value_parser = ["sha256", "sha384", "sha512"])]
         hash: Option<String>,
@@ -179,7 +179,7 @@ enum Commands {
     /// Sign a certificate.
     Sign {
         /// Signing configuration file (TOML).
-        #[arg(short, long, value_name = "CONFIG")]
+        #[arg(value_name = "CONFIG")]
         config: PathBuf,
         /// Existing issuer certificate chain to append to (required for non-root certs).
         #[arg(short, long, value_name = "CHAIN")]
@@ -188,14 +188,14 @@ enum Commands {
         #[arg(short, long, value_name = "OUT")]
         output: Option<PathBuf>,
         /// Issuer private key in PKCS#8 format (required unless --key-id is used).
-        #[arg(short, long, value_name = "KEY")]
-        private: Option<PathBuf>,
+        #[arg(short = 'p', long = "private-key", value_name = "PRIVATE_KEY")]
+        private_key: Option<PathBuf>,
         /// PKCS#11 provider library to load when using --key-id.
         #[arg(short, long, value_name = "LIBRARY")]
         module: Option<String>,
         /// Slot label identifying the PKCS#11 token. Defaults to $PKCS11_SLOT.
-        #[arg(long, value_name = "LABEL")]
-        label: Option<String>,
+        #[arg(long = "slot", value_name = "SLOT_LABEL")]
+        slot: Option<String>,
         /// User PIN for the PKCS#11 slot. Defaults to --pin-file/--pin-env or $PKCS11_PIN.
         #[arg(long, value_name = "PIN")]
         pin: Option<String>,
@@ -209,8 +209,8 @@ enum Commands {
         #[arg(short, long, value_name = "KEYID")]
         key_id: Option<String>,
         /// Public key to incorporate into the certificate.
-        #[arg(short, long, value_name = "PUBLIC_KEY")]
-        request: PathBuf,
+        #[arg(value_name = "PUBLIC_KEY")]
+        public_key: PathBuf,
         /// Configuration file section to apply (defaults to [defaults]).
         #[arg(short, long, value_name = "SECTION")]
         section: Option<String>,
@@ -219,11 +219,11 @@ enum Commands {
     #[command(name = "sign-offline-prepare", alias = "offline-prepare")]
     SignOfflinePrepare {
         /// Signing configuration file (TOML).
-        #[arg(short, long, value_name = "CONFIG")]
+        #[arg(value_name = "CONFIG")]
         config: PathBuf,
         /// Public key to incorporate into the certificate.
-        #[arg(short, long, value_name = "PUBLIC_KEY")]
-        request: PathBuf,
+        #[arg(value_name = "PUBLIC_KEY")]
+        public_key: PathBuf,
         /// Configuration file section to apply (defaults to [defaults]).
         #[arg(short, long, value_name = "SECTION")]
         section: Option<String>,
@@ -247,10 +247,10 @@ enum Commands {
         #[arg(short, long, value_name = "OUT")]
         output: Option<PathBuf>,
         /// (Pre-)Certificate produced by offline-prepare.
-        #[arg(short, long, value_name = "IN")]
-        request: PathBuf,
+        #[arg(value_name = "INPUT")]
+        input: PathBuf,
         /// Detached signature to merge into the certificate.
-        #[arg(short, long, value_name = "SIG")]
+        #[arg(value_name = "SIGNATURE")]
         signature: PathBuf,
     },
     /// Sign an authentication token.
@@ -266,14 +266,14 @@ enum Commands {
         #[arg(short, long, value_name = "OUT")]
         output: Option<PathBuf>,
         /// Signing private key in PKCS#8 format (required unless --key-id is used).
-        #[arg(short, long, value_name = "KEY")]
-        private: Option<PathBuf>,
+        #[arg(short = 'p', long = "private-key", value_name = "PRIVATE_KEY")]
+        private_key: Option<PathBuf>,
         /// PKCS#11 provider library to load when using --key-id.
         #[arg(short, long, value_name = "LIBRARY")]
         module: Option<String>,
         /// Slot label identifying the PKCS#11 token. Defaults to $PKCS11_SLOT.
-        #[arg(long, value_name = "LABEL")]
-        label: Option<String>,
+        #[arg(long = "slot", value_name = "SLOT_LABEL")]
+        slot: Option<String>,
         /// Requested permissions (16 bytes hex-encoded value).
         #[arg(value_name = "PERMISSIONS")]
         permissions: Option<String>,
@@ -289,7 +289,7 @@ enum Commands {
         /// PKCS#11 key identifier to use for signing.
         #[arg(short, long, value_name = "KEYID")]
         key_id: Option<String>,
-        /// Key type to sign with when using --key-id. If provided with --private, it must match the private key.
+        /// Key type to sign with when using --key-id. If provided with --private-key, it must match the private key.
         #[arg(long, value_name = "KEYTYPE")]
         key_type: Option<String>,
         /// Configuration file section to apply (defaults to [defaults]).
@@ -306,7 +306,7 @@ enum Commands {
         #[arg(short, long, value_name = "CONFIG")]
         config: Option<PathBuf>,
         /// Key type used for the token signature (for example EcdsaP384Sha384).
-        #[arg(long, value_name = "KEYTYPE")]
+        #[arg(value_name = "KEY_TYPE")]
         key_type: String,
         /// Requested permissions (16 bytes hex-encoded value).
         #[arg(value_name = "PERMISSIONS")]
@@ -328,10 +328,10 @@ enum Commands {
     #[command(name = "token-offline-merge")]
     TokenSignOfflineMerge {
         /// (Pre-)Token produced by token-offline-prepare.
-        #[arg(short = 'i', long, value_name = "IN")]
+        #[arg(value_name = "INPUT")]
         input: PathBuf,
         /// Detached signature to merge into the token.
-        #[arg(short, long, value_name = "SIG")]
+        #[arg(value_name = "SIGNATURE")]
         signature: PathBuf,
         /// Write the resulting token to this file.
         #[arg(short, long, value_name = "OUT")]
@@ -340,8 +340,8 @@ enum Commands {
     /// Verify certificate (chain) content.
     Verify {
         /// Path to the certificate or certificate chain to verify.
-        #[arg(short, long, value_name = "PATH")]
-        path: PathBuf,
+        #[arg(value_name = "INPUT")]
+        input: PathBuf,
         /// Path to an authentication token to verify against the leaf certificate public key.
         #[arg(short, long, value_name = "TOKEN")]
         token: Option<PathBuf>,
@@ -463,8 +463,8 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
     }
 
     let output = match &cli.cmd {
-        Commands::Display { path, leaf, print } => {
-            display::display_command(path, leaf, print, cli.verbose)
+        Commands::Display { input, leaf, print } => {
+            display::display_command(input, leaf, print, cli.verbose)
         }
         Commands::Pkcs11 {
             key_type,
@@ -472,53 +472,63 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             pin,
             pin_file,
             pin_env,
-            label,
-        } => pkcs11::pkcs11_generate_command(key_type, module, label, pin, pin_file, pin_env),
-        Commands::Pop { path, output } => misc::pop_command(path, output),
+            slot,
+        } => pkcs11::pkcs11_generate_command(key_type, module, slot, pin, pin_file, pin_env),
+        Commands::Pop { input, output } => misc::pop_command(input, output),
         Commands::Push {
             chain,
-            path,
+            input,
             output,
-        } => misc::push_command(chain, path, output),
-        Commands::RotHash { path, hash } => misc::rot_command(path, hash),
+        } => misc::push_command(chain, input, output),
+        Commands::RotHash { input, hash } => misc::rot_command(input, hash),
         Commands::Sign {
             config,
             issuer,
             output,
-            private,
+            private_key,
             module,
-            label,
+            slot,
             pin,
             pin_file,
             pin_env,
             key_id,
-            request,
+            public_key,
             section,
         } => sign::sign_command(
-            config, issuer, output, private, module, label, pin, pin_file, pin_env, key_id,
-            request, section,
+            config,
+            issuer,
+            output,
+            private_key,
+            module,
+            slot,
+            pin,
+            pin_file,
+            pin_env,
+            key_id,
+            public_key,
+            section,
         ),
         Commands::SignOfflinePrepare {
             config,
-            request,
+            public_key,
             section,
             output,
             tbs,
             hash,
-        } => prepare_command(config, request, section, output, tbs, hash),
+        } => prepare_command(config, public_key, section, output, tbs, hash),
         Commands::SignOfflineMerge {
             issuer,
             output,
-            request,
+            input,
             signature,
-        } => merge_command(issuer, output, request, signature),
+        } => merge_command(issuer, output, input, signature),
         Commands::TokenSign {
             challenge,
             config,
             output,
-            private,
+            private_key,
             module,
-            label,
+            slot,
             permissions,
             pin,
             pin_file,
@@ -530,9 +540,9 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             challenge,
             config,
             output,
-            private,
+            private_key,
             module,
-            label,
+            slot,
             permissions,
             pin,
             pin_file,
@@ -566,10 +576,10 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             output,
         } => token::token_merge_command(input, signature, output),
         Commands::Verify {
-            path,
+            input,
             token,
             challenge,
-        } => verify::verify_command(path, token, challenge),
+        } => verify::verify_command(input, token, challenge),
     }
     .with_context(|| format!("{:?} command failed", cli.cmd))?;
 

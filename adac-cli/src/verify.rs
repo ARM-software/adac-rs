@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 use crate::{CommandError, CommandOutput, token};
@@ -253,7 +253,7 @@ pub fn verify_command(
 mod tests {
     use super::*;
     use crate::config::parse_adac_token_configuration;
-    use crate::shared;
+    use crate::tests;
     use crate::token::token_sign_command;
     use std::{fs, path::Path};
 
@@ -286,7 +286,7 @@ requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
 
     #[test]
     fn verify_command_verifies_token_and_masks_permissions() {
-        let dir = shared::make_temp_dir("adac-cli-verify-tests");
+        let dir = tests::make_temp_dir("adac-cli-verify-tests");
         let config_path = write_config(&dir);
         let chain_path = fixture_path("roots", "root.EcdsaP384");
         let private_path = fixture_path("keys", "EcdsaP384Key-0.pk8");
@@ -353,7 +353,7 @@ requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
 
     #[test]
     fn verify_command_rejects_non_32_byte_challenge() {
-        let dir = shared::make_temp_dir("adac-cli-verify-tests");
+        let dir = tests::make_temp_dir("adac-cli-verify-tests");
         let config_path = write_config(&dir);
         let chain_path = fixture_path("roots", "root.EcdsaP384");
         let private_path = fixture_path("keys", "EcdsaP384Key-0.pk8");

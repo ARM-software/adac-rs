@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 use crate::{CommandError, CommandOutput, config};
@@ -32,14 +32,14 @@ pub fn sign_command(
     config: &PathBuf,
     issuer: &Option<PathBuf>,
     output: &Option<PathBuf>,
-    private: &Option<PathBuf>,
+    private_key: &Option<PathBuf>,
     module: &Option<String>,
-    label: &Option<String>,
+    slot: &Option<String>,
     pin: &Option<String>,
     pin_file: &Option<String>,
     pin_env: &Option<String>,
     key_id: &Option<String>,
-    request: &PathBuf,
+    public_key: &PathBuf,
     section: &Option<String>,
 ) -> anyhow::Result<CommandOutput, CommandError> {
     let config = fs::read_to_string(config).map_err(|e| CommandError::FileRead {
@@ -51,7 +51,7 @@ pub fn sign_command(
             source: anyhow::anyhow!("Error parsing configuration file: {:?}", e),
         }
     })?;
-    let public_key = load_public_key(request).map_err(|e| CommandError::AdacError {
+    let public_key = load_public_key(public_key).map_err(|e| CommandError::AdacError {
         source: anyhow::anyhow!("Error loading public key: {:?}", e),
     })?;
 
@@ -72,8 +72,8 @@ pub fn sign_command(
             });
         };
 
-        let label = if let Some(l) = label {
-            Some(l.clone())
+        let slot = if let Some(slot) = slot {
+            Some(slot.clone())
         } else {
             std::env::var("PKCS11_SLOT").ok()
         };
@@ -97,7 +97,7 @@ pub fn sign_command(
             });
         };
 
-        let mut crypto = Pkcs11Provider::new(module, pin, label);
+        let mut crypto = Pkcs11Provider::new(module, pin, slot);
         crypto
             .load_key(kt, AdacKeyFormat::KeyId, key_id.as_slice())
             .map_err(|e| CommandError::AdacError {
@@ -106,16 +106,16 @@ pub fn sign_command(
         Box::new(crypto)
     } else {
         let mut crypto = adac_crypto_rust::RustCryptoProvider::default();
-        let private = private.clone();
-        let private = if let Some(p) = private {
-            p.clone()
+        let private_key = private_key.clone();
+        let private_key = if let Some(path) = private_key {
+            path.clone()
         } else {
             return Err(CommandError::AdacError {
-                source: anyhow::anyhow!("Parameter --private or --key-id required."),
+                source: anyhow::anyhow!("Parameter --private-key or --key-id required."),
             });
         };
 
-        let (kt, private_key) = load_key(private).map_err(|e| CommandError::AdacError {
+        let (kt, private_key) = load_key(private_key).map_err(|e| CommandError::AdacError {
             source: anyhow::anyhow!("Error loading key file: {:?}", e),
         })?;
         crypto

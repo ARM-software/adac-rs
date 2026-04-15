@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 use crate::{CommandError, CommandOutput, config};
@@ -34,9 +34,9 @@ pub fn token_sign_command(
     challenge: &str,
     config: &Option<PathBuf>,
     output: &Option<PathBuf>,
-    private: &Option<PathBuf>,
+    private_key: &Option<PathBuf>,
     module: &Option<String>,
-    label: &Option<String>,
+    slot: &Option<String>,
     permissions: &Option<String>,
     pin: &Option<String>,
     pin_file: &Option<String>,
@@ -62,7 +62,14 @@ pub fn token_sign_command(
     let challenge = decode_challenge_parameter(challenge)?;
 
     let (key_type, mut crypto) = load_signing_provider(
-        private, module, label, pin, pin_file, pin_env, key_id, key_type,
+        private_key,
+        module,
+        slot,
+        pin,
+        pin_file,
+        pin_env,
+        key_id,
+        key_type,
     )?;
 
     let (header, extensions) = if let Some(config) = config {
@@ -422,9 +429,9 @@ fn parse_token_key_type(value: &str) -> Result<KeyOptions, CommandError> {
 }
 
 fn load_signing_provider(
-    private: &Option<PathBuf>,
+    private_key: &Option<PathBuf>,
     module: &Option<String>,
-    label: &Option<String>,
+    slot: &Option<String>,
     pin: &Option<String>,
     pin_file: &Option<String>,
     pin_env: &Option<String>,
@@ -439,10 +446,10 @@ fn load_signing_provider(
         let key_type = parse_token_key_type(key_type)?;
 
         let module = resolve_pkcs11_module(module)?;
-        let label = resolve_pkcs11_label(label);
+        let slot = resolve_pkcs11_slot(slot);
         let pin = resolve_pkcs11_pin(pin, pin_file, pin_env)?;
 
-        let mut crypto = Pkcs11Provider::new(module, pin, label);
+        let mut crypto = Pkcs11Provider::new(module, pin, slot);
         crypto
             .load_key(key_type, AdacKeyFormat::KeyId, key_id.as_slice())
             .map_err(|e| CommandError::AdacError {
@@ -452,11 +459,11 @@ fn load_signing_provider(
         return Ok((key_type, Box::new(crypto)));
     }
 
-    let private = private.clone().ok_or(CommandError::AdacError {
-        source: anyhow::anyhow!("Parameter --private or --key-id required."),
+    let private_key = private_key.clone().ok_or(CommandError::AdacError {
+        source: anyhow::anyhow!("Parameter --private-key or --key-id required."),
     })?;
     let (detected_key_type, private_key) =
-        load_key(private).map_err(|e| CommandError::AdacError {
+        load_key(private_key).map_err(|e| CommandError::AdacError {
             source: anyhow::anyhow!("Error loading key file: {:?}", e),
         })?;
     token::adac_sizes_from_crypto(detected_key_type).map_err(|e| CommandError::AdacError {
@@ -506,9 +513,9 @@ fn resolve_pkcs11_module(module: &Option<String>) -> Result<String, CommandError
     }
 }
 
-fn resolve_pkcs11_label(label: &Option<String>) -> Option<String> {
-    if let Some(label) = label {
-        Some(label.clone())
+fn resolve_pkcs11_slot(slot: &Option<String>) -> Option<String> {
+    if let Some(slot) = slot {
+        Some(slot.clone())
     } else {
         std::env::var("PKCS11_SLOT").ok()
     }
@@ -615,7 +622,7 @@ impl AdacCryptoProvider for PrepareCryptoProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared;
+    use crate::tests;
     use adac_crypto::utils::get_public_key;
 
     const TOKEN_CONFIG: &str = r#"
@@ -646,7 +653,7 @@ extensions = "0x01020304"
 
     #[test]
     fn token_sign_command_generates_verifiable_token() {
-        let dir = shared::make_temp_dir("adac-cli-token-tests");
+        let dir = tests::make_temp_dir("adac-cli-token-tests");
         let private = fixture_key_path("EcdsaP384Key-0.pk8");
         let challenge = TOKEN_CHALLENGE.to_string();
 
@@ -693,7 +700,7 @@ extensions = "0x01020304"
 
     #[test]
     fn token_sign_command_generates_verifiable_token_config() {
-        let dir = shared::make_temp_dir("adac-cli-token-tests");
+        let dir = tests::make_temp_dir("adac-cli-token-tests");
         let config_path = write_config(&dir);
         let private = fixture_key_path("EcdsaP384Key-0.pk8");
         let challenge = TOKEN_CHALLENGE.to_string();
@@ -742,7 +749,7 @@ extensions = "0x01020304"
 
     #[test]
     fn token_offline_prepare_and_merge_round_trip() {
-        let dir = shared::make_temp_dir("adac-cli-token-tests");
+        let dir = tests::make_temp_dir("adac-cli-token-tests");
         let config_path = write_config(&dir);
         let private = fixture_key_path("EcdsaP384Key-0.pk8");
         let prepared_path = dir.join("prepared.bin");
@@ -814,7 +821,7 @@ extensions = "0x01020304"
 
     #[test]
     fn token_sign_command_rejects_mismatched_key_type() {
-        let dir = shared::make_temp_dir("adac-cli-token-tests");
+        let dir = tests::make_temp_dir("adac-cli-token-tests");
         let config_path = write_config(&dir);
         let private = fixture_key_path("EcdsaP384Key-0.pk8");
         let challenge = TOKEN_CHALLENGE.to_string();
@@ -852,7 +859,7 @@ extensions = "0x01020304"
 
     #[test]
     fn token_sign_command_writes_raw_bytes_to_disk() {
-        let dir = shared::make_temp_dir("adac-cli-token-tests");
+        let dir = tests::make_temp_dir("adac-cli-token-tests");
         let config_path = write_config(&dir);
         let private = fixture_key_path("EcdsaP384Key-0.pk8");
         let output_path = dir.join("token.bin");
@@ -885,7 +892,7 @@ extensions = "0x01020304"
 
     #[test]
     fn token_sign_command_rejects_non_32_byte_challenge() {
-        let dir = shared::make_temp_dir("adac-cli-token-tests");
+        let dir = tests::make_temp_dir("adac-cli-token-tests");
         let config_path = write_config(&dir);
         let private = fixture_key_path("EcdsaP384Key-0.pk8");
 
