@@ -74,7 +74,7 @@ You can also sign certificates using a key from a local file. In this case, the 
 | `--pin` | User PIN needed to create or access the key. | `--pin 1234` | none |
 | `--pin-file` | A file containing the above user PIN. | `--pin-file secure/my_pin.txt` | none |
 | `--pin-env` | The name of the environment variable containing the user PIN. | `--pin-env ALT_PIN` | `PKCS11_PIN` |
-| `--label` | Optional slot label used to find the key. | `--label my_debug_keys` | none |
+| `--slot` | Optional slot label used to find the key. | `--slot my_debug_keys` | none |
 
 These environment variables can be used instead of the above:
 * `PKCS11_MODULE` - The path to the provider library.
@@ -87,18 +87,20 @@ These environment variables can be used instead of the above:
 Use this subcommand to display information about the certificate or certificate chain contents.
 
 ```
-Usage: adac-cli display [OPTIONS] --path <PATH>
+Usage: adac-cli display [OPTIONS] <INPUT>
 ```
+
+Positional arguments:
+- `<INPUT>`: Path to certificate or certificate chain.
 
 | Flag | Description | Example | Default |
 |------|-------------|---------|---------|
-| `-p, --path` | Path to certificate or certificate chain. | `--path my_debug.crt` | none, required |
 | `-l, --leaf` | Show only the leaf certificate. | `--leaf` | none |
 | `--print` | Output PEM of chain or leaf certificate. | `--print` | none |
 
 Example command to print information about crt1.crt:
 ```
-./adac-cli display -p test/crt1.crt -l
+adac-cli display test/crt1.crt -l
 ```
 
 ### pkcs11-keygen: Generate keys using a PKCS#11 provider.
@@ -106,12 +108,11 @@ Example command to print information about crt1.crt:
 Use this subcommand to generate keys stored in a Hardware Security Module using the PKCS#11 API.
 
 ```
-Usage: adac-cli pkcs11-keygen --key-type <TYPE> [OPTIONS]
+Usage: adac-cli pkcs11-keygen <KEY_TYPE> [OPTIONS]
 ```
 
-| Flag | Description | Example | Default |
-|------|-------------|---------|---------|
-| `-k, --key-type` | Key type, see lists below. | `--key-type EcdsaP384Sha384` | none, required |
+Positional arguments:
+- `<KEY_TYPE>`: Key type, see lists below.
 
 For other flags, see the [PKCS#11 options](#pkcs11-key-specifier-options) section.
 
@@ -134,27 +135,29 @@ Currently the following key types are supported:
 
 Example command to generate an ECDSA-P384 key, passing values from the environment:
 ```
-SECRET_PIN=123456 ./adac-cli --output-format json pkcs11-keygen --key-type EcdsaP384Sha384 \
-    --module /usr/lib/my_hsm/libhsm_pkcs11.so --label debug_keys --pin-env SECRET_PIN
+SECRET_PIN=123456 adac-cli --output-format json pkcs11-keygen \
+    EcdsaP384Sha384 --module /usr/lib/my_hsm/libhsm_pkcs11.so --slot debug_keys --pin-env SECRET_PIN
 ```
 
 ### pop: Extract last certificate.
 
-Use this subcommand to display information about the last certificate in a certificate chain.
-If there is only one certificate in the chain, that certificate is displayed.
+Use this subcommand to extract the last certificate from a certificate chain.
+If there is only one certificate in the chain, that certificate is returned.
 
 ```
-Usage: adac-cli pop [OPTIONS] --path <PATH>
+Usage: adac-cli pop [OPTIONS] <INPUT>
 ```
+
+Positional arguments:
+- `<INPUT>`: Path to certificate or certificate chain.
 
 | Flag | Description | Example | Default |
 |------|-------------|---------|---------|
-| `-p, --path` | Path to certificate or certificate chain. | `--path chain.crt` | none, required |
 | `-o, --output` | Output file to store the certificate in. | `--output leaf.pem` | none (stdout) |
 
 Example command to extract the leaf certificate of crt1.crt:
 ```
-./adac-cli pop -p test/crt1.crt
+adac-cli pop test/crt1.crt
 ```
 
 ### push: Add a certificate to a chain.
@@ -163,21 +166,21 @@ Use this subcommand to append a certificate or certificate chain to an existing 
 The resulting chain is written to the given output file, or printed to stdout if no output file is given.
 
 ```
-Usage: adac-cli push [OPTIONS] <CHAIN> <PATH>
+Usage: adac-cli push [OPTIONS] <CHAIN> <INPUT>
 ```
 
 Positional arguments:
 - `<CHAIN>`: Path to the certificate or certificate chain that receives the appended certificates.
-- `<PATH>`: Path to the additional certificate or certificate chain that will be appended.
+- `<INPUT>`: Path to the additional certificate or certificate chain that will be appended.
 
 | Flag | Description | Example | Default |
 |------|-------------|---------|---------|
-| `-o, --output` | Output file to store the certificate in. | `--output leaf.pem` | none (stdout) |
+| `-o, --output` | Output file to store the certificate chain in. | `--output combined.crt` | none (stdout) |
 
 Example command to add newcert.crt to the chain in test/crt1.crt and store
 the result in combined.crt:
 ```
-./adac-cli push -o combined.crt test/crt1.crt newcert.crt
+adac-cli push -o combined.crt test/crt1.crt newcert.crt
 ```
 
 ### rot-hash: Extract root of trust public key hash.
@@ -186,17 +189,19 @@ Use this subcommand to display the hash value of the Root of Trust (RoT) public 
 The Root of Trust is the key used to sign the root certificate of a chain.
 
 ```
-Usage: adac-cli rot-hash [OPTIONS] --path <PATH>
+Usage: adac-cli rot-hash [OPTIONS] <INPUT>
 ```
+
+Positional arguments:
+- `<INPUT>`: Path to certificate or certificate chain.
 
 | Flag | Description | Example | Default |
 |------|-------------|---------|---------|
-| `-p, --path` | Path to certificate or certificate chain. | `--path debug.crt` | - |
 | `--hash` | Hash algorithm. Options: `sha256`, `sha384`, `sha512` | `--hash sha384` | `sha256` |
 
 Example command to show the RoT hash from crt1.crt:
 ```
-./adac-cli rot-hash -p test/crt1.crt --hash sha384
+adac-cli rot-hash test/crt1.crt --hash sha384
 ```
 
 ### sign: Sign a certificate.
@@ -204,56 +209,60 @@ Example command to show the RoT hash from crt1.crt:
 Use this subcommand to create and sign a new certificate. This can be either a root certificate or one derived from an issuer certificate, creating a chain.
 
 ```
-Usage: adac-cli sign --config <CONFIG> --request <PUBLIC_KEY> [OPTIONS]
+Usage: adac-cli sign [OPTIONS] <CONFIG> <PUBLIC_KEY>
 ```
 
 | Flag | Description | Example | Default |
 |------|-------------|---------|---------|
-| `-c, --config` | Signing configuration file [(see here)](#configuration-file-format) | `--config bigsoc_config.toml` | none, required |
-| `-r, --request` | Public key to incorporate into the certificate. | `--request ap_team_key.pub` | none, required |
-| `-i, --issuer` | Issuer certificate. | `--issuer my_cert.crt` | none, required for non-root certificates |
+| `-i, --issuer` | Issuer certificate or certificate chain. | `--issuer my_cert.crt` | none, required for non-root certificates |
 | `-k, --key-id` | The identifier of the private key, when using PKCS#11 | `--key-id abcdef012345` | - |
-| `-p, --private` | A file containing the private key of the issuer (or RoT), when not using PKCS#11. | `--private my_key.pk8` | |
-| `-o, --output` | Output file for the generated certificate. | `--output ap_team_debug.crt` | - |
+| `-p, --private-key` | A file containing the private key of the issuer (or RoT), when not using PKCS#11. | `--private-key my_key.pk8` | |
+| `-o, --output` | Output file for the generated certificate or certificate chain. | `--output ap_team_debug.crt` | - |
 | `-s, --section` | Config file section to apply. | `--section intermediate` | - |
 
-See the [PKCS#11 options](#pkcs11-key-specifier-options) section for information on retrieving the key using PKCS#11.
+Positional arguments:
+- `<CONFIG>`: Signing configuration file [(see here)](#configuration-file-format)
+- `<PUBLIC_KEY>`: Public key to incorporate into the certificate.
 
-Alternatively, the subcommand can use private keys from a [PKCS#8 format](https://datatracker.ietf.org/doc/html/rfc5208) (PK8) file given using the `--private` flag.
+See the [PKCS#11 options](#pkcs11-key-specifier-options) section for information on retrieving the key using PKCS#11, including selecting the token by slot label with `--slot`.
+
+Alternatively, the subcommand can use private keys from a [PKCS#8 format](https://datatracker.ietf.org/doc/html/rfc5208) (PK8) file given using the `--private-key` flag.
 
 Example commands to generate certificates:
 ```
-./adac-cli sign -c test-config.toml \
-    -p resources/keys/EcdsaP384Key-1.pk8 -r EcdsaP384Key-2.pub \
+adac-cli sign test-config.toml EcdsaP384Key-2.pub \
+    -p resources/keys/EcdsaP384Key-1.pk8 \
     -i inter.crt -s crt1 -o crt1.crt
 
 export PKCS11_MODULE=/usr/bin/path/to/libprovider.so
-export PKCS11_SLOT=0123456789ab
+export PKCS11_SLOT=debug_keys
 export PKCS11_PIN=123456
-./adac-cli sign -c newchip/adac_config.toml -s secdbg_team \
+adac-cli sign newchip/adac_config.toml secdbg_Alice.pub -s secdbg_team \
     -i top_soc_debug.crt \
-    -r secdbg_Alice.pub -o secdbg_alice.crt \
+    -o secdbg_alice.crt \
     -k 1234bcc276f40f4153659863564abba
-./adac-cli sign -c newchip/adac_config.toml -s nonsecdbg_team \
+adac-cli sign newchip/adac_config.toml dbg_Bob.pub -s nonsecdbg_team \
     -i top_soc_debug.crt \
-    -r dbg_Bob.pub -o dbg_bob.crt \
+    -o dbg_bob.crt \
     -k 1234bcc276f40f4153659863564abba
 ```
 
 ### offline-prepare: Stage an unsigned certificate
 
 ```
-Usage: adac-cli offline-prepare --config <CONFIG> --request <PUBLIC_KEY> [OPTIONS]
+Usage: adac-cli offline-prepare [OPTIONS] <CONFIG> <PUBLIC_KEY>
 ```
 
 | Flag | Description | Example | Default |
 |------|-------------|---------|---------|
-| `-c, --config` | Signing configuration file [(same format as `sign`)](#configuration-file-format). | `--config crt_config.toml` | required |
-| `-r, --request` | Public key (PEM) to incorporate into the certificate. | `--request teams/ap.pub` | required |
 | `-s, --section` | Configuration section to apply. | `--section lab_leaf` | `[defaults]` |
 | `-o, --output` | Write the unsigned certificate (PEM chain) to this file. | `--output unsigned.crt` | stdout |
 | `-t, --tbs` | File to store the raw to-be-signed (TBS) payload. | `--tbs crt1.tbs` | stdout |
 | `--hash` | File to store the hash of the TBS payload (size depends on key type). | `--hash crt1.sha384` | stdout |
+
+Positional arguments:
+- `<CONFIG>`: Signing configuration file [(same format as `sign`)](#configuration-file-format).
+- `<PUBLIC_KEY>`: Public key (PEM) to incorporate into the certificate.
 
 When you do not specify output files, the command prints the following artifacts to stdout:
 * The PEM-encoded unsigned certificate chain (identical structure to a fully signed certificate but with a placeholder signature).
@@ -265,22 +274,24 @@ When you do not specify output files, the command prints the following artifacts
 Use this subcommand to combine an unsigned certificate with an offline signature and produce a complete certificate chain.
 
 ```
-Usage: adac-cli offline-merge [OPTIONS] --request <IN> --signature <SIG>
+Usage: adac-cli offline-merge [OPTIONS] <INPUT> <SIGNATURE>
 ```
 
 | Flag | Description | Example | Default |
 |------|-------------|---------|---------|
 | `-i, --issuer` | Optional issuer chain to prepend to the final output. | `--issuer inter_chain.crt` | none |
 | `-o, --output` | Write the completed certificate chain to this file. | `--output crt1-final.crt` | stdout |
-| `-r, --request` | Unsigned certificate produced by `offline-prepare`. | `--request unsigned.crt` | required |
-| `-s, --signature` | The DER-encoded signature over the TBS payload, created offline. | `--signature crt1.sig` | required |
+
+Positional arguments:
+- `<INPUT>`: Unsigned certificate produced by `offline-prepare`.
+- `<SIGNATURE>`: The DER-encoded signature over the TBS payload, created offline.
 
 Example:
 ```
 # Prepare unsigned certificate and TBS
 adac-cli offline-prepare \
-    -c test-config.toml \
-    -r EcdsaP384Key-2.pub \
+    test-config.toml \
+    EcdsaP384Key-2.pub \
     -s crt1 \
     -o unsigned.crt \
     -t crt1.tbs \
@@ -291,8 +302,8 @@ adac-cli offline-prepare \
 # Merge the signature into the certificate and add to the chain
 adac-cli offline-merge \
     --issuer inter.crt \
-    --request unsigned.crt \
-    --signature crt1.sig \
+    unsigned.crt \
+    crt1.sig \
     --output crt1-final.crt
 ```
 
@@ -301,18 +312,17 @@ adac-cli offline-merge \
 Use this subcommand to verify the integrity of a certificate or all the certificates in a chain.
 
 ```
-Usage: adac-cli verify --path <PATH>
+Usage: adac-cli verify <INPUT>
 ```
 
-| Flag | Description | Example | Default |
-|------|-------------|---------|---------|
-| `-p, --path` | Path to certificate or certificate chain. | `--path debug.crt` | none, required |
+Positional arguments:
+- `<INPUT>`: Path to certificate or certificate chain.
 
 The adac-cli exit status will be non-zero if the chain does not verify successfully.
 
 Example command to verify the chain in crt1.crt:
 ```
-./adac-cli verify -p test/crt1.crt
+adac-cli verify test/crt1.crt
 ```
 
 ## Configuration file format
