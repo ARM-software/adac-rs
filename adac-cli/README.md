@@ -19,6 +19,9 @@ The tool has a number of subcommands which perform specific actions on keys or c
 * `sign` - Sign a certificate.
 * `offline-prepare` - Generate an unsigned certificate plus the payload that must be signed elsewhere.
 * `offline-merge` - Combine an offline signature with an unsigned certificate.
+* `token-sign` (alias: `token`) - Sign an authentication token.
+* `token-offline-prepare` - Generate an unsigned token plus the payload that must be signed elsewhere.
+* `token-offline-merge` - Combine an offline token signature with an unsigned token.
 * `verify` - Verify certificate chain content.
 
 Subsequent sections describe common or recurring option groups and each subcommand individually.
@@ -63,7 +66,7 @@ For clarity only options unique to each subcommand are detailed in the sections 
 
 ### PKCS#11 key specifier options
 
-These options define the PKCS#11 key used to `sign` a certificate, or specify the key being created by `pkcs11-keygen`.
+These options define the PKCS#11 key used to sign a certificate or token, or specify the key being created by `pkcs11-keygen`.
 Some options may be passed using shell environment variables, and some options affect which environment variables are used.
 
 You can also sign certificates using a key from a local file. In this case, the PKCS#11 options are not required.
@@ -307,22 +310,150 @@ adac-cli offline-merge \
     --output crt1-final.crt
 ```
 
-### verify: Verify certificate chain content.
+### token-sign: Sign an authentication token.
 
-Use this subcommand to verify the integrity of a certificate or all the certificates in a chain.
+Use this subcommand to create and sign an authentication token. The command name `token` is available as an alias for `token-sign`.
 
 ```
-Usage: adac-cli verify <INPUT>
+Usage: adac-cli token-sign [OPTIONS] <CHALLENGE> [PERMISSIONS]
+```
+
+| Flag | Description | Example | Default |
+|------|-------------|---------|---------|
+| `-c, --config` | Token configuration file [(see here)](#token-configuration-file-format). | `--config token.toml` | none |
+| `-k, --key-id` | The identifier of the private key, when using PKCS#11. | `--key-id abcdef012345` | none |
+| `--key-type` | Key type to sign with when using `--key-id`. If provided with `--private-key`, it must match the private key. | `--key-type EcdsaP384Sha384` | inferred from private key |
+| `-o, --output` | Write the resulting token to this file. | `--output token.bin` | stdout |
+| `-p, --private-key` | A file containing the private key in PKCS#8 format, when not using PKCS#11. | `--private-key signer.pk8` | none |
+| `-s, --section` | Config file section to apply. | `--section token` | `[defaults]` |
+
+Positional arguments:
+- `<CHALLENGE>`: Token challenge as a 32-byte `0x`-prefixed hex value.
+- `[PERMISSIONS]`: Requested permissions as a 16-byte `0x`-prefixed hex value.
+
+See the [PKCS#11 options](#pkcs11-key-specifier-options) section for information on retrieving the key using PKCS#11, including selecting the token by slot label with `--slot`.
+
+When `--output` is omitted, the token is printed to stdout as base64. When `--output` is provided, the file contains the raw token bytes.
+
+Example command to sign a token using a local private key:
+```
+adac-cli token-sign \
+    0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff \
+    0xffffffffffffffffffffffffffffffff \
+    --private-key resources/keys/EcdsaP384Key-2.pk8 \
+    --output token.bin
+```
+
+### token-offline-prepare: Stage an unsigned token
+
+Use this subcommand when the token signing key is held in an offline system that cannot run `adac-cli` directly.
+
+```
+Usage: adac-cli token-offline-prepare [OPTIONS] <CHALLENGE> <KEY_TYPE> [PERMISSIONS]
+```
+
+| Flag | Description | Example | Default |
+|------|-------------|---------|---------|
+| `-c, --config` | Token configuration file [(see here)](#token-configuration-file-format). | `--config token.toml` | none |
+| `-o, --output` | Write the unsigned token to this file. | `--output unsigned-token.bin` | stdout |
+| `-s, --section` | Config file section to apply. | `--section token` | `[defaults]` |
+| `-t, --tbs` | File to store the raw to-be-signed (TBS) payload. | `--tbs token.tbs` | stdout |
+| `--hash` | File to store the hash of the TBS payload. | `--hash token.sha384` | stdout |
+
+Positional arguments:
+- `<CHALLENGE>`: Token challenge as a 32-byte `0x`-prefixed hex value.
+- `<KEY_TYPE>`: Token signature key type, for example `EcdsaP384Sha384`.
+- `[PERMISSIONS]`: Requested permissions as a 16-byte `0x`-prefixed hex value.
+
+Currently the following token signature key types are supported:
+ - EcdsaP256Sha256
+ - EcdsaP384Sha384
+ - EcdsaP521Sha512
+ - MlDsa44Sha256
+ - MlDsa65Sha384
+ - MlDsa87Sha512
+ - Rsa3072Sha256
+ - Rsa4096Sha256
+
+When you do not specify output files, the command prints the following artifacts to stdout:
+* The unsigned token as base64.
+* `TBS=<base64>` – the byte sequence that must be signed offline.
+* `Hash=<hex>` – the digest of the TBS payload.
+
+Example:
+```
+adac-cli token-offline-prepare \
+    0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff \
+    EcdsaP384Sha384 \
+    0xffffffffffffffffffffffffffffffff \
+    --output unsigned-token.bin \
+    --tbs token.tbs \
+    --hash token.sha384
+```
+
+### token-offline-merge: Attach the offline token signature
+
+Use this subcommand to combine an unsigned token with an offline signature and produce a complete token.
+
+```
+Usage: adac-cli token-offline-merge [OPTIONS] <INPUT> <SIGNATURE>
+```
+
+| Flag | Description | Example | Default |
+|------|-------------|---------|---------|
+| `-o, --output` | Write the resulting token to this file. | `--output token.bin` | stdout |
+
+Positional arguments:
+- `<INPUT>`: Unsigned token produced by `token-offline-prepare`.
+- `<SIGNATURE>`: Detached signature to merge into the token.
+
+When `--output` is omitted, the merged token is printed to stdout as base64. When `--output` is provided, the file contains the raw token bytes.
+
+Example:
+```
+# Prepare unsigned token and TBS
+adac-cli token-offline-prepare \
+    0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff \
+    EcdsaP384Sha384 \
+    0xffffffffffffffffffffffffffffffff \
+    --output unsigned-token.bin \
+    --tbs token.tbs \
+    --hash token.sha384
+
+# Sign token.tbs on the offline system and write the detached signature to token.sig
+
+# Merge the signature into the token
+adac-cli token-offline-merge \
+    unsigned-token.bin \
+    token.sig \
+    --output token.bin
+```
+
+### verify: Verify certificate chain content.
+
+Use this subcommand to verify the integrity of a certificate or all the certificates in a chain. It can also verify an authentication token against the leaf certificate public key.
+
+```
+Usage: adac-cli verify [OPTIONS] <INPUT>
 ```
 
 Positional arguments:
 - `<INPUT>`: Path to certificate or certificate chain.
 
-The adac-cli exit status will be non-zero if the chain does not verify successfully.
+| Flag | Description | Example | Default |
+|------|-------------|---------|---------|
+| `-c, --challenge` | Challenge bytes encoded as hex for token verification. Must be provided together with `--token`. | `--challenge 0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff` | none |
+| `-t, --token` | Path to an authentication token to verify against the leaf certificate public key. Must be provided together with `--challenge`. | `--token token.bin` | none |
 
-Example command to verify the chain in crt1.crt:
+The adac-cli exit status will be non-zero if the chain or token does not verify successfully.
+
+Example commands:
 ```
 adac-cli verify test/crt1.crt
+
+adac-cli verify test/crt1.crt \
+    --token token.bin \
+    --challenge 0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
 ```
 
 ## Configuration file format
@@ -378,6 +509,31 @@ permissions_mask = "0x8000000003FFFFFFFFFFFFFF00000000"
 soc_id = "0x01234005678009abc00def0123456789"
 usage = 2
 permissions_mask = "0x00000000000000000000000000000000"
+```
+
+## Token configuration file format
+
+The token signing configuration file is also [TOML format](https://toml.io/en/). It has a required `[defaults]` section and optional additional sections that override individual settings.
+
+| Setting | Meaning | Description | Example Value |
+|---|---|---|---|
+| version_major | Token format version (major) | Must be `1`. | 1 |
+| version_minor | Token format version (minor) | Currently `0` or `1`. | 1 |
+| requested_permissions | Requested debug permissions | A 16-byte `0x`-prefixed hex string. | `0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF` |
+| extensions | Optional TLV extensions | Raw extension bytes as a `0x`-prefixed hex string. Use an empty string when no extensions are needed. | `0x01020304` |
+
+Example configuration:
+```
+[defaults]
+version_major = 1
+version_minor = 0
+requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = ""
+
+[token]
+version_minor = 1
+requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = "0x01020304"
 ```
 
 ## License
