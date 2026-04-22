@@ -21,7 +21,7 @@ p384 = { version = "0.13.1", features = ["ecdsa", "jwk", "pem", "pkcs8"] }
 p521 = { version = "0.13.3", features = ["ecdsa", "jwk", "pem", "pkcs8"] }
 pkcs8 = { version = "0.10.2", features = ["pem"] }
 ml-dsa = { version = "0.0.4", features = ["pkcs8"] }
-rand = "0.8.5"
+rand = "0.8"
 rsa = { version = "0.9", features = ["pem"] }
 signature = "2.2.0"
 sha2 = "0.10.8"
