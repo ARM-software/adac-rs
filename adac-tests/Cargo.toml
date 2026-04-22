@@ -15,7 +15,7 @@ base16ct = "0.2.0"
 base64 = "0.22"
 clap = { version = "4", features = ["color", "env", "derive"] }
 console = { version = "0.16", default-features = false, features = ["ansi-parsing", "std"] }
-cryptoki = "0.11.0"
+cryptoki = "0.12.0"
 cryptoki-sys = "0.5.0"
 hex = "0.4.3"
 hex-literal = "1.1"
