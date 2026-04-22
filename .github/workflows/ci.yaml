@@ -55,6 +55,8 @@ jobs:
           RUSTFLAGS: "-D warnings"
           RUST_BACKTRACE: 1
         run: |
-          sh adac-tests/run-tests.sh
+          adac-tests/run-tests.sh
           cargo build -p adac-cli
-          ADAC_CLI=./target/debug/adac-cli sh adac-tests/pkcs11-test.sh        
+          ADAC_CLI=./target/debug/adac-cli adac-tests/pkcs11-test.sh
+          # Does not work due to older OpenSSL version
+          # ADAC_CLI=./target/debug/adac-cli adac-tests/offline-test.sh
