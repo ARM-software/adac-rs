@@ -11,7 +11,7 @@ base64 = "0.22"
 der = { version = "0.7.9", features = ["alloc"] }
 ecdsa = { version = "0.16.9", features = ["signing", "verifying", "pkcs8"] }
 ed25519 = { version = "2.2.3", features = ["alloc", "pkcs8"] }
-ed448 = { version = "0.5.0-pre.0", features = ["alloc", "pkcs8"] }
+ed448 = { version = "0.5.0-rc.5", features = ["alloc", "pkcs8"] }
 ed448-goldilocks-plus = { version = "0.16.0", features = ["signing", "pkcs8"] }
 elliptic-curve = { version = "0.13.8", features = ["sec1", "pem", "pkcs8"] }
 hybrid-array = "0.3"
