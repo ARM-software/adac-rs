@@ -6,36 +6,49 @@ use adac::{
     AdacError,
     KeyOptions::{self, *},
 };
-use der::{AnyRef, Encode};
 use hybrid_array::{typenum::U32, Array};
-use ml_dsa::{KeyPair, MlDsa44, MlDsa65, MlDsa87, MlDsaParams, VerifyingKey};
-use pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey, PrivateKeyInfo};
+use ml_dsa::pkcs8::der::{self, AnyRef, Encode, Reader, SecretDocument, SliceReader};
+use ml_dsa::pkcs8::{self, spki, PrivateKeyInfoRef};
+use ml_dsa::pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey};
+use ml_dsa::signature::Keypair;
+use ml_dsa::{MlDsa44, MlDsa65, MlDsa87, MlDsaParams, SigningKey, VerifyingKey};
 use std::marker::PhantomData;
 
 // TODO: KeyConverter is only needed until ml-dsa supports the updated IETF standard seed encoding.
 type B32 = Array<u8, U32>;
+type SeedString<'a> = der::asn1::ContextSpecific<&'a der::asn1::OctetStringRef>;
+const SEED_TAG_NUMBER: der::TagNumber = der::TagNumber(0);
+
 pub struct KeyConverter<P: MlDsaParams> {
     /// The seed this signing key was derived from
     seed: B32,
     phantom: PhantomData<P>,
 }
 
-impl<P> TryFrom<PrivateKeyInfo<'_>> for KeyConverter<P>
+impl<P> TryFrom<PrivateKeyInfoRef<'_>> for KeyConverter<P>
 where
     P: MlDsaParams,
     P: spki::AssociatedAlgorithmIdentifier<Params = AnyRef<'static>>,
 {
     type Error = pkcs8::Error;
 
-    fn try_from(private_key_info: pkcs8::PrivateKeyInfo<'_>) -> pkcs8::Result<Self> {
-        match private_key_info.algorithm {
-            alg if alg == P::ALGORITHM_IDENTIFIER => {}
-            other => return Err(spki::Error::OidUnknown { oid: other.oid }.into()),
-        }
+    fn try_from(private_key_info: PrivateKeyInfoRef<'_>) -> Result<Self, Self::Error> {
+        private_key_info
+            .algorithm
+            .assert_algorithm_oid(P::ALGORITHM_IDENTIFIER.oid)?;
 
-        let os = private_key_info.private_key;
-        let os = if os.len() == 34 { &os[2..] } else { os };
-        let seed = Array::try_from(os).map_err(|_| pkcs8::Error::KeyMalformed)?;
+        let private_key = private_key_info.private_key.as_bytes();
+        let seed_bytes = if private_key.len() == 32 {
+            private_key
+        } else {
+            let mut reader = SliceReader::new(private_key)?;
+            let seed_string = SeedString::decode_implicit(&mut reader, SEED_TAG_NUMBER)?
+                .ok_or(pkcs8::Error::KeyMalformed)?;
+            reader.finish()?;
+            seed_string.value.as_bytes()
+        };
+
+        let seed = Array::try_from(seed_bytes).map_err(|_| pkcs8::Error::KeyMalformed)?;
         Ok(KeyConverter {
             seed,
             phantom: PhantomData::<P>,
@@ -48,17 +61,26 @@ where
     P: MlDsaParams,
     P: spki::AssociatedAlgorithmIdentifier<Params = AnyRef<'static>>,
 {
-    fn to_pkcs8_der(&self) -> pkcs8::Result<der::SecretDocument> {
-        let pkcs8_key = PrivateKeyInfo::new(P::ALGORITHM_IDENTIFIER, &self.seed);
-        Ok(der::SecretDocument::encode_msg(&pkcs8_key)?)
+    fn to_pkcs8_der(&self) -> Result<SecretDocument, pkcs8::Error> {
+        let seed_der = SeedString {
+            tag_mode: ml_dsa::pkcs8::der::TagMode::Implicit,
+            tag_number: SEED_TAG_NUMBER,
+            value: der::asn1::OctetStringRef::new(&self.seed)?,
+        }
+        .to_der()?;
+
+        let private_key = der::asn1::OctetStringRef::new(&seed_der)?;
+        let private_key_info = PrivateKeyInfoRef::new(P::ALGORITHM_IDENTIFIER, private_key);
+        SecretDocument::encode_msg(&private_key_info).map_err(pkcs8::Error::Asn1)
     }
 }
 
 impl<P> KeyConverter<P>
 where
     P: MlDsaParams,
+    P: spki::AssociatedAlgorithmIdentifier<Params = AnyRef<'static>>,
     KeyConverter<P>: DecodePrivateKey + EncodePrivateKey,
-    KeyPair<P>: DecodePrivateKey,
+    SigningKey<P>: DecodePrivateKey,
     VerifyingKey<P>: EncodePublicKey,
 {
     pub fn fix_pkcs8_der(input: &[u8]) -> Result<Vec<u8>, AdacError> {
@@ -77,7 +99,7 @@ where
 
     pub fn adac_from_pkcs8(key: &Vec<u8>) -> Result<Vec<u8>, AdacError> {
         let key = KeyConverter::<P>::fix_pkcs8_der(key.as_slice())?;
-        let evk = KeyPair::<P>::from_pkcs8_der(key.as_slice())
+        let evk = SigningKey::<P>::from_pkcs8_der(key.as_slice())
             .map_err(|e| {
                 AdacError::Encoding(format!("Error decoding ML-DSA key from PKCS#8: {}", e))
             })?
@@ -90,8 +112,8 @@ where
 pub fn from_adac_mldsa<P>(adac: &[u8]) -> Result<(Vec<u8>, Vec<u8>), AdacError>
 where
     P: MlDsaParams,
-    VerifyingKey<P>: DecodePublicKey,
     P: spki::AssociatedAlgorithmIdentifier<Params = AnyRef<'static>>,
+    VerifyingKey<P>: DecodePublicKey + EncodePublicKey,
 {
     let vk_bytes = ml_dsa::EncodedVerifyingKey::<P>::try_from(adac)
         .map_err(|e| AdacError::Encoding(format!("Decoding public key: {}", e)))?;
@@ -124,8 +146,8 @@ pub fn from_adac(key_type: KeyOptions, adac: &[u8]) -> Result<AdacPublicKey, Ada
 pub fn from_spki_mldsa<P>(public_key: &Vec<u8>) -> Result<(Vec<u8>, Vec<u8>), AdacError>
 where
     P: MlDsaParams,
-    VerifyingKey<P>: DecodePublicKey,
     P: spki::AssociatedAlgorithmIdentifier<Params = AnyRef<'static>>,
+    VerifyingKey<P>: DecodePublicKey + EncodePublicKey,
 {
     let k = VerifyingKey::<P>::from_public_key_der(public_key.as_slice())
         .map_err(|e| AdacError::Encoding(format!("Error decoding ML-DSA key from SPKI: {}", e)))?
@@ -156,12 +178,13 @@ pub fn from_spki(key_type: KeyOptions, spki: &[u8]) -> Result<AdacPublicKey, Ada
 pub fn spki_from_pkcs8<P>(key: &Vec<u8>) -> Result<Vec<u8>, AdacError>
 where
     P: MlDsaParams,
+    P: spki::AssociatedAlgorithmIdentifier<Params = AnyRef<'static>>,
     KeyConverter<P>: DecodePrivateKey + EncodePrivateKey,
-    KeyPair<P>: DecodePrivateKey,
+    SigningKey<P>: DecodePrivateKey,
     VerifyingKey<P>: EncodePublicKey,
 {
     let key = KeyConverter::<P>::fix_pkcs8_der(key.as_slice())?;
-    let spki = KeyPair::<P>::from_pkcs8_der(key.as_slice())
+    let spki = SigningKey::<P>::from_pkcs8_der(key.as_slice())
         .map_err(|e| AdacError::Encoding(format!("Error decoding ML-DSA key from PKCS#8: {}", e)))?
         .verifying_key()
         .to_public_key_der()

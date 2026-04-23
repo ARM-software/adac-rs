@@ -12,6 +12,7 @@ use ecdsa::signature::DigestVerifier;
 use ecdsa::signature::hazmat::PrehashSigner;
 use ecdsa::{Signature, SigningKey, VerifyingKey};
 use ed448_goldilocks_plus::PreHasherXof;
+use ml_dsa::pkcs8::DecodePrivateKey as _;
 use ml_dsa::{MlDsa44, MlDsa65, MlDsa87};
 use p256::NistP256;
 use p384::NistP384;
@@ -300,7 +301,8 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 let pk = KeyConverter::<MlDsa44>::fix_pkcs8_der(&current_key.key)?;
                 let sk = ml_dsa::SigningKey::<MlDsa44>::from_pkcs8_der(&pk)
                     .map_err(|e| AdacError::Encoding(format!("Decoding private key: {}", e)))?;
-                sk.sign_deterministic(data, &[])
+                sk.signing_key()
+                    .sign_deterministic(data, &[])
                     .map_err(|e| AdacError::CryptoProviderError(format!("Signing: {}", e)))?
                     .encode()
                     .to_vec()
@@ -310,6 +312,7 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 let sk = ml_dsa::SigningKey::<MlDsa65>::from_pkcs8_der(&pk)
                     .map_err(|e| AdacError::Encoding(format!("Decoding private key: {}", e)))?;
                 let mut sig = sk
+                    .signing_key()
                     .sign_deterministic(data, &[])
                     .map_err(|e| AdacError::CryptoProviderError(format!("Signing: {}", e)))?
                     .encode()
@@ -322,6 +325,7 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 let sk = ml_dsa::SigningKey::<MlDsa87>::from_pkcs8_der(&pk)
                     .map_err(|e| AdacError::Encoding(format!("Decoding private key: {}", e)))?;
                 let mut sig = sk
+                    .signing_key()
                     .sign_deterministic(data, &[])
                     .map_err(|e| AdacError::CryptoProviderError(format!("Signing: {}", e)))?
                     .encode()
