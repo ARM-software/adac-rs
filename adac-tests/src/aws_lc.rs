@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 #[cfg(test)]
@@ -61,6 +61,21 @@ mod tests {
         let chain = load_certificates("resources/chains/chain.MlDsa87").unwrap();
         assert_eq!(chain.len(), 4);
         verify_chain(chain, &crypto).unwrap();
+    }
+
+    #[test]
+    fn ml_dsa_65_chain_rejects_nonzero_signature_padding() {
+        let crypto = adac_crypto_aws_lc::AwsLcCryptoProvider::default();
+        let mut chain = load_certificates("resources/chains/chain.MlDsa65").unwrap();
+        let certificate = chain.pop().unwrap();
+        let mut bytes = certificate.to_bytes();
+        let signature_offset = certificate.get_tbs().len();
+        bytes[signature_offset + adac::MLDSA_65_SIGNATURE_UNPADDED] ^= 0x01;
+        let certificate = AdacCertificate::from_bytes(bytes).unwrap();
+
+        assert!(certificate
+            .verify(chain.last().unwrap().get_public_key(), &crypto)
+            .is_err());
     }
 
     #[test]

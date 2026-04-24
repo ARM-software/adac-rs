@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 use core::mem::size_of;
@@ -231,6 +231,54 @@ pub fn tlv_wrap(type_id: u16, content: Vec<u8>) -> Vec<u8> {
     tlv
 }
 
+pub fn validate_signature_padding(
+    key_type: KeyOptions,
+    signature: &[u8],
+) -> Result<&[u8], AdacError> {
+    let (unpadded, padding) = match key_type {
+        KeyOptions::Ed448Shake256 => signature
+            .split_at_checked(ED448_SIGNATURE_SIZE_UNPADDED)
+            .ok_or(AdacError::InvalidLength)?,
+        KeyOptions::MlDsa65Sha384 => signature
+            .split_at_checked(MLDSA_65_SIGNATURE_UNPADDED)
+            .ok_or(AdacError::InvalidLength)?,
+        KeyOptions::MlDsa87Sha512 => signature
+            .split_at_checked(MLDSA_87_SIGNATURE_UNPADDED)
+            .ok_or(AdacError::InvalidLength)?,
+        _ => return Ok(signature),
+    };
+
+    if padding.iter().any(|b| *b != 0) {
+        return Err(AdacError::Encoding("Invalid signature padding".to_string()));
+    }
+
+    Ok(unpadded)
+}
+
+pub fn validate_public_key_padding(
+    key_type: KeyOptions,
+    public_key: &[u8],
+) -> Result<&[u8], AdacError> {
+    if key_type != KeyOptions::Ed448Shake256 {
+        return Ok(public_key);
+    }
+
+    if public_key.len() != ED448_PUBLIC_KEY_SIZE {
+        return Err(AdacError::InvalidLength);
+    }
+
+    let (unpadded, padding) = public_key
+        .split_at_checked(ED448_PUBLIC_KEY_SIZE_UNPADDED)
+        .ok_or(AdacError::InvalidLength)?;
+    if padding.iter().any(|b| *b != 0) {
+        return Err(AdacError::Encoding(
+            "Invalid public key padding".to_string(),
+        ));
+    }
+
+    Ok(unpadded)
+}
+
 pub const ECDSA_P256_PUBLIC_KEY_SIZE: usize = 64;
 pub const ECDSA_P256_SIGNATURE_SIZE: usize = 64;
 pub const ECDSA_P256_HASH_SIZE: usize = 32;
@@ -278,3 +326,83 @@ pub const RSA_4096_HASH_SIZE: usize = 32;
 pub const SM2_PUBLIC_KEY_SIZE: usize = 64;
 pub const SM2_SIGNATURE_SIZE: usize = 64;
 pub const SM2_HASH_SIZE: usize = 32;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_signature_padding_returns_unpadded_ed448_signature() {
+        let mut signature = vec![0xAA; ED448_SIGNATURE_SIZE_UNPADDED];
+        signature.extend_from_slice(&[0u8; ED448_SIGNATURE_SIZE - ED448_SIGNATURE_SIZE_UNPADDED]);
+
+        let validated = validate_signature_padding(KeyOptions::Ed448Shake256, &signature).unwrap();
+
+        assert_eq!(validated, &signature[..ED448_SIGNATURE_SIZE_UNPADDED]);
+    }
+
+    #[test]
+    fn validate_signature_padding_rejects_nonzero_ed448_padding() {
+        let mut signature = vec![0xAA; ED448_SIGNATURE_SIZE];
+        signature[ED448_SIGNATURE_SIZE_UNPADDED] = 1;
+
+        assert!(matches!(
+            validate_signature_padding(KeyOptions::Ed448Shake256, &signature),
+            Err(AdacError::Encoding(message)) if message == "Invalid signature padding"
+        ));
+    }
+
+    #[test]
+    fn validate_signature_padding_rejects_nonzero_mldsa65_padding() {
+        let mut signature = vec![0xAA; MLDSA_65_SIGNATURE_SIZE];
+        signature[MLDSA_65_SIGNATURE_UNPADDED] = 1;
+
+        assert!(matches!(
+            validate_signature_padding(KeyOptions::MlDsa65Sha384, &signature),
+            Err(AdacError::Encoding(message)) if message == "Invalid signature padding"
+        ));
+    }
+
+    #[test]
+    fn validate_signature_padding_rejects_invalid_padded_signature_length() {
+        let signature = vec![0xAA; ED448_SIGNATURE_SIZE_UNPADDED - 1];
+
+        assert!(matches!(
+            validate_signature_padding(KeyOptions::Ed448Shake256, &signature),
+            Err(AdacError::InvalidLength)
+        ));
+    }
+
+    #[test]
+    fn validate_public_key_padding_returns_unpadded_ed448_public_key() {
+        let mut public_key = vec![0xAA; ED448_PUBLIC_KEY_SIZE_UNPADDED];
+        public_key
+            .extend_from_slice(&[0u8; ED448_PUBLIC_KEY_SIZE - ED448_PUBLIC_KEY_SIZE_UNPADDED]);
+
+        let validated =
+            validate_public_key_padding(KeyOptions::Ed448Shake256, &public_key).unwrap();
+
+        assert_eq!(validated, &public_key[..ED448_PUBLIC_KEY_SIZE_UNPADDED]);
+    }
+
+    #[test]
+    fn validate_public_key_padding_rejects_nonzero_ed448_padding() {
+        let mut public_key = vec![0xAA; ED448_PUBLIC_KEY_SIZE];
+        public_key[ED448_PUBLIC_KEY_SIZE_UNPADDED] = 1;
+
+        assert!(matches!(
+            validate_public_key_padding(KeyOptions::Ed448Shake256, &public_key),
+            Err(AdacError::Encoding(message)) if message == "Invalid public key padding"
+        ));
+    }
+
+    #[test]
+    fn validate_public_key_padding_rejects_unpadded_ed448_public_key() {
+        let public_key = vec![0xAA; ED448_PUBLIC_KEY_SIZE_UNPADDED];
+
+        assert!(matches!(
+            validate_public_key_padding(KeyOptions::Ed448Shake256, &public_key),
+            Err(AdacError::InvalidLength)
+        ));
+    }
+}

@@ -130,6 +130,11 @@ impl AdacCertificate {
             return Err(AdacError::InvalidLength);
         }
 
+        crate::validate_public_key_padding(
+            key_type,
+            &certificate[Self::HEADER_SIZE..(Self::HEADER_SIZE + pubkey_size)],
+        )?;
+
         Ok(Self {
             certificate,
             key_type,
@@ -165,6 +170,7 @@ impl AdacCertificate {
         if public_key.len() != pubkey_size {
             return Err(AdacError::InvalidLength);
         }
+        crate::validate_public_key_padding(key_type, public_key)?;
 
         if header.format_version == (AdacVersion { major: 1, minor: 0 }) {
             match key_type {
