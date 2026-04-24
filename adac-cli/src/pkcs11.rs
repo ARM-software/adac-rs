@@ -1,10 +1,8 @@
 // Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-use crate::{CommandError, CommandOutput};
-use adac::KeyOptions::{
-    EcdsaP256Sha256, EcdsaP384Sha384, EcdsaP521Sha512, Rsa3072Sha256, Rsa4096Sha256,
-};
+use crate::{CommandError, CommandOutput, shared};
+use adac::KeyOptions::*;
 use adac_crypto_pkcs11::Pkcs11Provider;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
@@ -28,32 +26,27 @@ impl Pkcs11GenerateReport {
     }
 }
 
+fn parse_pkcs11_keygen_key_type(value: &str) -> Result<adac::KeyOptions, CommandError> {
+    let key_type = shared::parse_cli_key_type(value)?;
+    match key_type {
+        EcdsaP256Sha256 | EcdsaP384Sha384 | EcdsaP521Sha512 | Rsa3072Sha256 | Rsa4096Sha256 => {
+            Ok(key_type)
+        }
+        _ => Err(CommandError::AdacError {
+            source: anyhow::anyhow!("Algorithm '{}' not supported", value),
+        }),
+    }
+}
+
 pub fn pkcs11_generate_command(
-    key_type: &String,
+    key_type: &str,
     module: &Option<String>,
     slot: &Option<String>,
     pin: &Option<String>,
     pin_file: &Option<String>,
     pin_env: &Option<String>,
 ) -> anyhow::Result<CommandOutput, CommandError> {
-    let key_type = match key_type.as_str() {
-        "EcdsaP256Sha256" => EcdsaP256Sha256,
-        "EcdsaP384Sha384" => EcdsaP384Sha384,
-        "EcdsaP521Sha512" => EcdsaP521Sha512,
-        "Rsa3072Sha256" => Rsa3072Sha256,
-        "Rsa4096Sha256" => Rsa4096Sha256,
-        "Ed25519Sha512" | "Ed448Shake256" | "SmSm2Sm3" | "CmacAes" | "HmacSha256"
-        | "MlDsa44Sha256" | "MlDsa65Sha384" | "MlDsa87Sha512" => {
-            return Err(CommandError::AdacError {
-                source: anyhow::anyhow!("Algorithm '{}' not supported", key_type),
-            });
-        }
-        _ => {
-            return Err(CommandError::AdacError {
-                source: anyhow::anyhow!("Algorithm '{}' not recognized", key_type),
-            });
-        }
-    };
+    let key_type = parse_pkcs11_keygen_key_type(key_type)?;
 
     let module = if let Some(m) = module {
         m.clone()

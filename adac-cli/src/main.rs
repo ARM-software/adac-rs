@@ -6,6 +6,7 @@ mod display;
 mod misc;
 mod offline;
 mod pkcs11;
+mod shared;
 mod sign;
 #[cfg(test)]
 mod tests;

@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-use crate::{CommandError, CommandOutput, config};
+use crate::{CommandError, CommandOutput, config, shared};
 use adac::token::{self, AdacToken};
 use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
 use adac::{AdacError, KeyOptions, TokenHeader};
@@ -398,27 +398,7 @@ pub(crate) fn decode_challenge_parameter(value: &str) -> Result<Vec<u8>, Command
 }
 
 fn parse_token_key_type(value: &str) -> Result<KeyOptions, CommandError> {
-    let key_type = match value {
-        "EcdsaP256Sha256" => KeyOptions::EcdsaP256Sha256,
-        "EcdsaP384Sha384" => KeyOptions::EcdsaP384Sha384,
-        "EcdsaP521Sha512" => KeyOptions::EcdsaP521Sha512,
-        "MlDsa44Sha256" => KeyOptions::MlDsa44Sha256,
-        "MlDsa65Sha384" => KeyOptions::MlDsa65Sha384,
-        "MlDsa87Sha512" => KeyOptions::MlDsa87Sha512,
-        "Rsa3072Sha256" => KeyOptions::Rsa3072Sha256,
-        "Rsa4096Sha256" => KeyOptions::Rsa4096Sha256,
-        "Ed25519Sha512" | "Ed448Shake256" | "SmSm2Sm3" | "CmacAes" | "HmacSha256" => {
-            return Err(CommandError::AdacError {
-                source: anyhow::anyhow!("Algorithm '{}' not supported for token generation", value),
-            });
-        }
-        _ => {
-            return Err(CommandError::AdacError {
-                source: anyhow::anyhow!("Algorithm '{}' not recognized", value),
-            });
-        }
-    };
-
+    let key_type = shared::parse_cli_key_type(value)?;
     token::adac_sizes_from_crypto(key_type).map_err(|e| CommandError::AdacError {
         source: anyhow::anyhow!(
             "Algorithm '{value}' not supported for token generation: {:?}",
