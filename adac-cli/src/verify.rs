@@ -255,7 +255,7 @@ mod tests {
     use crate::config::parse_adac_token_configuration;
     use crate::shared;
     use crate::token::token_sign_command;
-    use std::fs;
+    use std::{fs, path::Path};
 
     const TOKEN_CONFIG: &str = r#"
 [defaults]
@@ -278,7 +278,7 @@ requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
             .join(name)
     }
 
-    fn write_config(dir: &PathBuf) -> PathBuf {
+    fn write_config(dir: &Path) -> PathBuf {
         let path = dir.join("token.toml");
         fs::write(&path, TOKEN_CONFIG).unwrap();
         path

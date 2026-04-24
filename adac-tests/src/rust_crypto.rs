@@ -436,12 +436,11 @@ mod tests {
         let mut chain = vec![];
         let mut export = vec![];
         let mut key = &keys[0];
-        for i in 0..keys.len() {
+        for (i, current) in keys.iter().enumerate() {
             crypto
                 .load_key(key_type, AdacKeyFormat::Pkcs8, key.clone().as_slice())
                 .unwrap();
-            let current = &keys[i];
-            let public_key = get_public_key(key_type, &current).unwrap();
+            let public_key = get_public_key(key_type, current).unwrap();
             let h = crate::test_certificate_header(key_type, i);
 
             let certificate =
@@ -512,7 +511,7 @@ mod tests {
     #[ignore]
     #[test]
     fn ecdsa_sign_test_rust() {
-        let key_paths = vec![
+        let key_paths = [
             "resources/keys/EcdsaP384Key-0.pk8",
             "resources/keys/EcdsaP384Key-1.pk8",
             "resources/keys/EcdsaP384Key-2.pk8",
@@ -522,13 +521,15 @@ mod tests {
         let mut crypto = adac_crypto_rust::RustCryptoProvider::default();
 
         let key_type = EcdsaP384Sha384;
-        let mut h = CertificateHeader::default();
-        h.format_version = AdacVersion { major: 1, minor: 1 };
-        h.role = AdacCrtRoleRoot;
-        h.permissions_mask = [0xFFu8; 16];
-        h.key_type = key_type;
-        h.signature_type = key_type;
-        h.usage = adac::CertificateUsage::AdacUsageNeutral;
+        let mut h = CertificateHeader {
+            format_version: AdacVersion { major: 1, minor: 1 },
+            role: AdacCrtRoleRoot,
+            permissions_mask: [0xFFu8; 16],
+            key_type,
+            signature_type: key_type,
+            usage: adac::CertificateUsage::AdacUsageNeutral,
+            ..Default::default()
+        };
         let mut chain = vec![];
         crypto
             .load_key(key_type, AdacKeyFormat::Pkcs8, keys[0].clone().as_slice())
