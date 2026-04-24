@@ -112,12 +112,11 @@ mod tests {
         let mut chain = vec![];
         let mut export = vec![];
         let mut key = &keys[0];
-        for i in 0..keys.len() {
+        for (i, current) in keys.iter().enumerate() {
             crypto
                 .load_key(key_type, AdacKeyFormat::Pkcs8, key.clone().as_slice())
                 .unwrap();
-            let current = &keys[i];
-            let public_key = get_public_key(key_type, &current).unwrap();
+            let public_key = get_public_key(key_type, current).unwrap();
             let h = crate::test_certificate_header(key_type, i);
 
             let certificate =

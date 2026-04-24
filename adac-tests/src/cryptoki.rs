@@ -199,11 +199,10 @@ mod tests {
         }
 
         let mut signer = 0;
-        for i in 0..key_ids.len() {
+        for (i, public_key) in public_keys.iter().enumerate() {
             crypto
                 .load_key(key_type, AdacKeyFormat::KeyId, key_ids[signer].as_slice())
                 .unwrap();
-            let public_key = &public_keys[i];
             let h = crate::test_certificate_header(key_type, i);
 
             let certificate =
@@ -244,8 +243,10 @@ mod tests {
             }
         };
 
-        let mut h = TokenHeader::default();
-        h.signature_type = key_type;
+        let h = TokenHeader {
+            signature_type: key_type,
+            ..Default::default()
+        };
 
         let challenge = vec![0x00u8; 32];
         let token =

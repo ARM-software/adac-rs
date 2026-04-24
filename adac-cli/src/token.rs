@@ -31,7 +31,7 @@ impl TokenSignatureReport {
 }
 
 pub fn token_sign_command(
-    challenge: &String,
+    challenge: &str,
     config: &Option<PathBuf>,
     output: &Option<PathBuf>,
     private: &Option<PathBuf>,
@@ -69,8 +69,10 @@ pub fn token_sign_command(
         let header = build_token_header(&config, key_type);
         (header, config.extensions.clone())
     } else {
-        let mut header = TokenHeader::default();
-        header.signature_type = key_type;
+        let mut header = TokenHeader {
+            signature_type: key_type,
+            ..Default::default()
+        };
 
         if let Some(permissions) = permissions {
             let permissions = if let Some(hex) = permissions.strip_prefix("0x") {
@@ -92,7 +94,7 @@ pub fn token_sign_command(
                 u128::from_be_bytes(permissions.as_slice().try_into().unwrap());
             header
                 .requested_permissions
-                .copy_from_slice(&requested_permissions.to_le_bytes().as_ref());
+                .copy_from_slice(requested_permissions.to_le_bytes().as_ref());
         }
 
         let extensions: Vec<u8> = vec![];
@@ -119,7 +121,7 @@ pub fn token_sign_command(
             path: path.clone(),
             source: e,
         })?;
-        file.write_all(&token.as_slice())
+        file.write_all(token.as_slice())
             .map_err(|e| CommandError::FileWrite {
                 path: path.clone(),
                 source: e,
@@ -159,8 +161,8 @@ impl TokenPrepareReport {
 
 pub fn token_prepare_command(
     config: &Option<PathBuf>,
-    key_type: &String,
-    challenge: &String,
+    key_type: &str,
+    challenge: &str,
     permissions: &Option<String>,
     section: &Option<String>,
     token_path: &Option<PathBuf>,
@@ -189,8 +191,10 @@ pub fn token_prepare_command(
         let header = build_token_header(&config, key_type);
         (header, config.extensions.clone())
     } else {
-        let mut header = TokenHeader::default();
-        header.signature_type = key_type;
+        let mut header = TokenHeader {
+            signature_type: key_type,
+            ..Default::default()
+        };
 
         if let Some(permissions) = permissions {
             let permissions = if let Some(hex) = permissions.strip_prefix("0x") {
@@ -212,7 +216,7 @@ pub fn token_prepare_command(
                 u128::from_be_bytes(permissions.as_slice().try_into().unwrap());
             header
                 .requested_permissions
-                .copy_from_slice(&requested_permissions.to_le_bytes().as_ref());
+                .copy_from_slice(requested_permissions.to_le_bytes().as_ref());
         }
 
         let extensions: Vec<u8> = vec![];
@@ -634,7 +638,7 @@ extensions = "0x01020304"
             .join(name)
     }
 
-    fn write_config(dir: &PathBuf) -> PathBuf {
+    fn write_config(dir: &std::path::Path) -> PathBuf {
         let path = dir.join("token.toml");
         fs::write(&path, TOKEN_CONFIG).unwrap();
         path
@@ -854,7 +858,7 @@ extensions = "0x01020304"
         let output_path = dir.join("token.bin");
 
         let output = token_sign_command(
-            &TOKEN_CHALLENGE.to_string(),
+            TOKEN_CHALLENGE,
             &Some(config_path),
             &Some(output_path.clone()),
             &Some(private),
@@ -886,7 +890,7 @@ extensions = "0x01020304"
         let private = fixture_key_path("EcdsaP384Key-0.pk8");
 
         let err = token_sign_command(
-            &"0x00112233".to_string(),
+            "00112233",
             &Some(config_path),
             &None,
             &Some(private),

@@ -61,23 +61,24 @@ mod tests {
         let mut crypto = adac_crypto_aws_lc::AwsLcCryptoProvider::default();
         let keys: Vec<Vec<u8>> = key_paths.iter().map(|p| load_key(p).unwrap().1).collect();
 
-        let mut h = CertificateHeader::default();
-        h.format_version = AdacVersion { major: 1, minor: 1 };
-        h.role = AdacCrtRoleRoot;
-        h.permissions_mask = [0xFFu8; 16];
-        h.key_type = key_type;
-        h.signature_type = key_type;
-        h.usage = adac::CertificateUsage::AdacUsageStandard;
+        let mut h = CertificateHeader {
+            format_version: AdacVersion { major: 1, minor: 1 },
+            role: AdacCrtRoleRoot,
+            permissions_mask: [0xFFu8; 16],
+            key_type,
+            signature_type: key_type,
+            usage: adac::CertificateUsage::AdacUsageStandard,
+            ..Default::default()
+        };
 
         let mut chain = vec![];
         let mut export = vec![];
         let mut key = &keys[0];
-        for i in 0..keys.len() {
+        for (i, current) in keys.iter().enumerate() {
             crypto
                 .load_key(key_type, AdacKeyFormat::Pkcs8, key.clone().as_slice())
                 .unwrap();
-            let current = &keys[i];
-            let public_key = get_public_key(key_type, &current).unwrap();
+            let public_key = get_public_key(key_type, current).unwrap();
 
             if i > 0 {
                 h.role = if i < keys.len() - 1 {
