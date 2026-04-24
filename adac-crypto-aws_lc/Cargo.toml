@@ -1,10 +1,14 @@
+# Copyright (c) 2019-2026, Arm Limited. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
 [package]
 name = "adac-crypto-aws_lc"
-version = "0.1.0"
-edition = "2024"
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
 license = "BSD-3-Clause"
 
 [dependencies]
 adac = { path = "../adac" }
 adac-crypto = { path = "../adac-crypto" }
-aws-lc-rs = { version = "1.13", features = ["unstable"] }
+aws-lc-rs = { version = "1.16", features = ["unstable"] }

@@ -5,7 +5,7 @@ use crate::traits::AdacCryptoProvider;
 use crate::{
     AdacError, AdacVersion, CertificateHeader, CertificateRole, CertificateUsage, KeyOptions,
 };
-use core::mem::{size_of, MaybeUninit};
+use core::mem::{MaybeUninit, size_of};
 use std::mem::offset_of;
 
 pub struct AdacCertificate {

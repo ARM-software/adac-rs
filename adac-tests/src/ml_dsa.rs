@@ -3,11 +3,11 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::{run_test_with, TestSettings};
+    use crate::{TestSettings, run_test_with};
     use adac::{
+        AdacVersion, KeyOptions,
         certificate::AdacCertificate,
         traits::{AdacCryptoProvider, AdacKeyFormat},
-        AdacVersion, KeyOptions,
     };
     use adac::{CertificateHeader, CertificateRole::*, KeyOptions::*};
     use adac_crypto::utils::*;

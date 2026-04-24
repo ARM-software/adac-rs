@@ -7,9 +7,9 @@ use der::asn1::{BitString, ObjectIdentifier};
 use der::oid::AssociatedOid;
 use der::{Decode, Encode, SliceReader};
 use elliptic_curve::{
+    AffinePoint, Curve, CurveArithmetic, JwkParameters, PublicKey, SecretKey,
     point::PointCompression,
     sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint, ValidatePublicKey},
-    AffinePoint, Curve, CurveArithmetic, JwkParameters, PublicKey, SecretKey,
 };
 use p256::NistP256;
 use p384::NistP384;

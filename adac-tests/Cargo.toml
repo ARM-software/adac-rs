@@ -1,7 +1,11 @@
+# Copyright (c) 2019-2026, Arm Limited. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
 [package]
 name = "adac-tests"
-version = "0.1.0"
-edition = "2021"
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
 license = "BSD-3-Clause"
 
 [dependencies]
@@ -11,14 +15,14 @@ adac-crypto-aws_lc = { path = "../adac-crypto-aws_lc" }
 adac-crypto-pkcs11 = { path = "../adac-crypto-pkcs11" }
 adac-crypto-rust = { path = "../adac-crypto-rust" }
 adac-cryptoki = { path = "../adac-cryptoki" }
-base16ct = "0.2.0"
-base64 = "0.22"
+base16ct = { workspace = true }
+base64 = { workspace = true }
 clap = { version = "4", features = ["color", "env", "derive"] }
 console = { version = "0.16", default-features = false, features = ["ansi-parsing", "std"] }
-cryptoki = "0.12.0"
+cryptoki = { workspace = true }
 cryptoki-sys = "0.5.0"
 hex = "0.4.3"
 hex-literal = "1.1"
 indicatif = "0.18.0"
-pem = "3.0"
-rand = "0.8"
+pem = { workspace = true }
+rand = { workspace = true }
