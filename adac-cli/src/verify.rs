@@ -107,6 +107,8 @@ pub fn verify_command(
     let mut pubkey = chain[0].get_public_key();
     let mut header = chain[0].header();
     let mut usage = header.usage;
+    let mut lifecycle = header.lifecycle;
+    let mut oem_constraint = header.oem_constraint;
     let mut soc_id = header.soc_id;
     let mut soc_class = header.soc_class;
     let mut permissions = header.permissions_mask;
@@ -135,9 +137,11 @@ pub fn verify_command(
             error_count += 1;
             errors.push("Only last certificate can have leaf role".to_string());
         } else {
-            // if i == chain.len() - 1 && header.role != CertificateRole::AdacCrtRoleLeaf {
-            //     println!("Note: Last certificate is not Leaf");
-            // }
+            // TODO: `verify` accepts any certificate chains, whether or not they terminate with
+            // a leaf certificate. Therefore a non-leaf final certificate is not an error in
+            // itself. A future version might consider adding an explicit flag that requires the
+            // last certificate to have the Leaf role and return a verification failure when this
+            // requirement is not satified.
         }
 
         if usage == CertificateUsage::AdacUsageNeutral {
@@ -167,6 +171,26 @@ pub fn verify_command(
             errors.push(format!(
                 "SoC ID Class not match (0x{:x} != 0x{:x})",
                 soc_class, h_soc_class
+            ));
+        }
+        if lifecycle == 0 {
+            lifecycle = header.lifecycle;
+        } else if header.lifecycle != 0 && lifecycle != header.lifecycle {
+            let h_lifecycle = header.lifecycle;
+            error_count += 1;
+            errors.push(format!(
+                "Lifecycle does not match (0x{:x} != 0x{:x})",
+                lifecycle, h_lifecycle
+            ));
+        }
+        if oem_constraint == 0 {
+            oem_constraint = header.oem_constraint;
+        } else if header.oem_constraint != 0 && oem_constraint != header.oem_constraint {
+            let h_oem_constraint = header.oem_constraint;
+            error_count += 1;
+            errors.push(format!(
+                "OEM constraint does not match (0x{:x} != 0x{:x})",
+                oem_constraint, h_oem_constraint
             ));
         }
         for (i, p) in permissions.iter_mut().enumerate() {
@@ -229,6 +253,15 @@ pub fn verify_command(
     if soc_class != 0x0 {
         summary.push(format!("Restricted to SoC Class: 0x{:x}", soc_class));
     }
+    if lifecycle != 0 {
+        summary.push(format!("Restricted to lifecycle 0x{:x}", lifecycle));
+    }
+    if oem_constraint != 0 {
+        summary.push(format!(
+            "Restricted to OEM constraint 0x{:x}",
+            oem_constraint
+        ));
+    }
 
     if usage != CertificateUsage::AdacUsageNeutral {
         summary.push(format!("Restricted to usage {:?}", usage));
@@ -253,8 +286,12 @@ pub fn verify_command(
 mod tests {
     use super::*;
     use crate::config::parse_adac_token_configuration;
+    use crate::sign::sign_command;
     use crate::tests;
     use crate::token::token_sign_command;
+    use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
+    use adac_crypto::utils::load_key;
+    use adac_crypto_rust::RustCryptoProvider;
     use std::{fs, path::Path};
 
     const TOKEN_CONFIG: &str = r#"
@@ -284,6 +321,108 @@ requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
         path
     }
 
+    fn write_public_key_from_private(dir: &Path, key_name: &str, output_name: &str) -> PathBuf {
+        let (key_type, private_key) = load_key(fixture_path("keys", key_name)).unwrap();
+        let mut crypto = RustCryptoProvider::default();
+        let public_key = crypto
+            .load_key(key_type, AdacKeyFormat::Pkcs8, private_key.as_slice())
+            .unwrap();
+        let pem = pem::Pem::new("PUBLIC KEY", public_key);
+        let pem = pem::encode_config(
+            &pem,
+            pem::EncodeConfig::new().set_line_ending(pem::LineEnding::LF),
+        );
+        let path = dir.join(output_name);
+        fs::write(&path, pem).unwrap();
+        path
+    }
+
+    fn write_verify_config(dir: &Path) -> PathBuf {
+        let path = dir.join("verify-config.toml");
+        fs::write(
+            &path,
+            r#"
+[defaults]
+version_major = 1
+version_minor = 1
+role = 3
+usage = 0
+lifecycle = 0
+oem_constraint = 0
+soc_class = 0
+soc_id = "0x00000000000000000000000000000000"
+permissions_mask = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = ""
+
+[root]
+role = 1
+
+[root_conflict]
+role = 1
+lifecycle = 0x3000
+oem_constraint = 0x1234
+
+[leaf_restricted]
+lifecycle = 0x3000
+oem_constraint = 0x1234
+
+[leaf_conflict]
+lifecycle = 0x4000
+oem_constraint = 0x5678
+"#,
+        )
+        .unwrap();
+        path
+    }
+
+    fn write_signed_chain(
+        dir: &Path,
+        root_section: &str,
+        leaf_section: &str,
+        output_name: &str,
+    ) -> PathBuf {
+        let config_path = write_verify_config(dir);
+        let root_private = fixture_path("keys", "EcdsaP384Key-0.pk8");
+        let root_public = write_public_key_from_private(dir, "EcdsaP384Key-0.pk8", "root.pub");
+        let leaf_public = write_public_key_from_private(dir, "EcdsaP384Key-1.pk8", "leaf.pub");
+        let root_path = dir.join("root.pem");
+        let chain_path = dir.join(output_name);
+
+        sign_command(
+            &config_path,
+            &None,
+            &Some(root_path.clone()),
+            &Some(root_private.clone()),
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &root_public,
+            &Some(root_section.to_string()),
+        )
+        .unwrap();
+
+        sign_command(
+            &config_path,
+            &Some(root_path),
+            &Some(chain_path.clone()),
+            &Some(root_private),
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &leaf_public,
+            &Some(leaf_section.to_string()),
+        )
+        .unwrap();
+
+        chain_path
+    }
+
     #[test]
     fn verify_command_verifies_token_and_masks_permissions() {
         let dir = tests::make_temp_dir("adac-cli-verify-tests");
@@ -293,7 +432,7 @@ requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
         let token_path = dir.join("token.bin");
 
         token_sign_command(
-            &TOKEN_CHALLENGE.to_string(),
+            TOKEN_CHALLENGE,
             &Some(config_path),
             &Some(token_path.clone()),
             &Some(private_path),
@@ -360,7 +499,7 @@ requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
         let token_path = dir.join("token.bin");
 
         token_sign_command(
-            &TOKEN_CHALLENGE.to_string(),
+            TOKEN_CHALLENGE,
             &Some(config_path),
             &Some(token_path.clone()),
             &Some(private_path),
@@ -385,6 +524,60 @@ requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
             }
             other => panic!("unexpected error: {other:?}"),
         }
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn verify_command_reports_effective_lifecycle_and_oem_constraint() {
+        let dir = tests::make_temp_dir("adac-cli-verify-tests");
+        let chain_path = write_signed_chain(&dir, "root", "leaf_restricted", "restricted.pem");
+
+        let output = verify_command(&chain_path, &None, &None).unwrap();
+
+        let CommandOutput::Verify(report) = output else {
+            panic!("unexpected command output");
+        };
+        assert_eq!(report.error_count, 0);
+        assert!(
+            report
+                .summary
+                .iter()
+                .any(|line| line == "Restricted to lifecycle 0x3000")
+        );
+        assert!(
+            report
+                .summary
+                .iter()
+                .any(|line| line == "Restricted to OEM constraint 0x1234")
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn verify_command_rejects_conflicting_lifecycle_and_oem_constraint() {
+        let dir = tests::make_temp_dir("adac-cli-verify-tests");
+        let chain_path = write_signed_chain(&dir, "root_conflict", "leaf_conflict", "conflict.pem");
+
+        let output = verify_command(&chain_path, &None, &None).unwrap();
+
+        let CommandOutput::Verify(report) = output else {
+            panic!("unexpected command output");
+        };
+        assert_eq!(report.error_count, 2);
+        assert!(report.certificates.iter().any(|certificate| {
+            certificate
+                .errors
+                .iter()
+                .any(|error| error == "Lifecycle does not match (0x3000 != 0x4000)")
+        }));
+        assert!(report.certificates.iter().any(|certificate| {
+            certificate
+                .errors
+                .iter()
+                .any(|error| error == "OEM constraint does not match (0x1234 != 0x5678)")
+        }));
 
         let _ = fs::remove_dir_all(dir);
     }
