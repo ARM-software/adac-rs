@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 use crate::{CommandError, CommandOutput};
@@ -41,7 +41,7 @@ impl DisplayReport {
 
             writeln!(
                 out,
-                "  Permission Mask: 0x{} ({})",
+                "  Permission Mask: {} ({})",
                 crt.permissions_mask_be, crt.permissions_mask_raw
             )?;
 
@@ -132,7 +132,7 @@ pub fn display_command(
 
         let mut soc_id = [0x0u8; 16];
         soc_id.copy_from_slice(u128::from_le_bytes(header.soc_id).to_be_bytes().as_ref());
-        let soc_id_be = base16ct::lower::encode_string(soc_id.as_slice());
+        let soc_id_be = format!("0x{}", base16ct::lower::encode_string(soc_id.as_slice()));
         let soc_id_raw = base16ct::lower::encode_string(header.soc_id.as_slice());
 
         let mut permissions_mask = [0x00u8; 16];
@@ -141,7 +141,10 @@ pub fn display_command(
                 .to_be_bytes()
                 .as_ref(),
         );
-        let permissions_mask_be = base16ct::lower::encode_string(permissions_mask.as_slice());
+        let permissions_mask_be = format!(
+            "0x{}",
+            base16ct::lower::encode_string(permissions_mask.as_slice())
+        );
         let permissions_mask_raw =
             base16ct::lower::encode_string(header.permissions_mask.as_slice());
 

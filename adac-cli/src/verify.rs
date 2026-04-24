@@ -269,7 +269,7 @@ version_minor = 1
 requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
 "#;
     const TOKEN_CHALLENGE: &str =
-        "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 
     fn fixture_path(kind: &str, name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -376,8 +376,8 @@ requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
         )
         .unwrap();
 
-        let err = verify_command(&chain_path, &Some(token_path), &Some("0x0011".to_string()))
-            .unwrap_err();
+        let err =
+            verify_command(&chain_path, &Some(token_path), &Some("0011".to_string())).unwrap_err();
 
         match err {
             CommandError::InvalidParameter { parameter } => {
