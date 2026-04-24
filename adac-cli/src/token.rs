@@ -73,7 +73,10 @@ pub fn token_sign_command(
     )?;
 
     let (header, extensions) = if let Some(config) = config {
-        let header = build_token_header(&config, key_type);
+        let mut header = build_token_header(&config, key_type);
+        if let Some(permissions) = permissions {
+            header.requested_permissions = parse_requested_permissions_parameter(permissions)?;
+        }
         (header, config.extensions.clone())
     } else {
         let mut header = TokenHeader {
@@ -176,7 +179,10 @@ pub fn token_prepare_command(
     let challenge = decode_challenge_parameter(challenge)?;
 
     let (header, extensions) = if let Some(config) = config {
-        let header = build_token_header(&config, key_type);
+        let mut header = build_token_header(&config, key_type);
+        if let Some(permissions) = permissions {
+            header.requested_permissions = parse_requested_permissions_parameter(permissions)?;
+        }
         (header, config.extensions.clone())
     } else {
         let mut header = TokenHeader {
@@ -670,6 +676,42 @@ extensions = "01020304"
     }
 
     #[test]
+    fn token_sign_command_permissions_override_config() {
+        let dir = tests::make_temp_dir("adac-cli-token-tests");
+        let config_path = write_config(&dir);
+        let private = fixture_key_path("EcdsaP384Key-0.pk8");
+        let challenge = TOKEN_CHALLENGE.to_string();
+
+        let output = token_sign_command(
+            &challenge,
+            &Some(config_path),
+            &None,
+            &Some(private),
+            &None,
+            &None,
+            &Some("0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF".to_string()),
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &Some("token".to_string()),
+        )
+        .unwrap();
+
+        let CommandOutput::TokenSign(report) = output else {
+            panic!("unexpected command output");
+        };
+        let token = AdacToken::from_bytes(BASE64_STANDARD.decode(&report.token).unwrap()).unwrap();
+        assert_eq!(
+            token.header().requested_permissions,
+            0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFFu128.to_le_bytes()
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn token_offline_prepare_and_merge_round_trip() {
         let dir = tests::make_temp_dir("adac-cli-token-tests");
         let config_path = write_config(&dir);
@@ -737,6 +779,37 @@ extensions = "01020304"
             .verify(public_key.as_slice(), challenge.as_slice(), &crypto)
             .unwrap();
         load_token(&merged_path).unwrap();
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn token_prepare_command_permissions_override_config() {
+        let dir = tests::make_temp_dir("adac-cli-token-tests");
+        let config_path = write_config(&dir);
+        let challenge = TOKEN_CHALLENGE.to_string();
+        let key_type = "EcdsaP384Sha384".to_string();
+
+        let output = token_prepare_command(
+            &Some(config_path),
+            &key_type,
+            &challenge,
+            &Some("0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF".to_string()),
+            &Some("token".to_string()),
+            &None,
+            &None,
+            &None,
+        )
+        .unwrap();
+
+        let CommandOutput::TokenSignOfflinePrepare(report) = output else {
+            panic!("unexpected command output");
+        };
+        let token = AdacToken::from_bytes(BASE64_STANDARD.decode(&report.token).unwrap()).unwrap();
+        assert_eq!(
+            token.header().requested_permissions,
+            0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFFu128.to_le_bytes()
+        );
 
         let _ = fs::remove_dir_all(dir);
     }
@@ -819,7 +892,7 @@ extensions = "01020304"
         let private = fixture_key_path("EcdsaP384Key-0.pk8");
 
         let err = token_sign_command(
-            &"00112233".to_string(),
+            "00112233",
             &Some(config_path),
             &None,
             &Some(private),
@@ -884,7 +957,7 @@ extensions = "01020304"
         let private = fixture_key_path("EcdsaP384Key-0.pk8");
 
         let err = token_sign_command(
-            &TOKEN_CHALLENGE.to_string(),
+            TOKEN_CHALLENGE,
             &None,
             &None,
             &Some(private),

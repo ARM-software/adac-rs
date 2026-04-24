@@ -342,6 +342,8 @@ Positional arguments:
 
 See the [PKCS#11 options](#pkcs11-key-specifier-options) section for information on retrieving the key using PKCS#11, including selecting the token by slot label with `--slot`.
 
+If both `--config` and the positional `[PERMISSIONS]` argument are provided, the positional value overrides `requested_permissions` from the selected configuration section.
+
 When `--output` is omitted, the token is printed to stdout as base64. When `--output` is provided, the file contains the raw token bytes.
 
 Example command to sign a token using a local private key:
@@ -383,6 +385,8 @@ Currently the following token signature key types are supported:
  - MlDsa87Sha512
  - Rsa3072Sha256
  - Rsa4096Sha256
+
+If both `--config` and the positional `[PERMISSIONS]` argument are provided, the positional value overrides `requested_permissions` from the selected configuration section.
 
 When you do not specify output files, the command prints the following artifacts to stdout:
 * The unsigned token as base64.
@@ -523,6 +527,8 @@ permissions_mask = "0x00000000000000000000000000000000"
 ## Token configuration file format
 
 The token signing configuration file is also [TOML format](https://toml.io/en/). It has a required `[defaults]` section and optional additional sections that override individual settings.
+
+For `token-sign` and `token-offline-prepare`, the positional `[PERMISSIONS]` argument has higher precedence than `requested_permissions` from the configuration file. When `[PERMISSIONS]` is omitted, the command uses the value from the selected configuration section.
 
 | Setting | Meaning | Description | Example Value |
 |---|---|---|---|
