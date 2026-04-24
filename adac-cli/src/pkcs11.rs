@@ -3,7 +3,6 @@
 
 use crate::{CommandError, CommandOutput, shared};
 use adac::KeyOptions::*;
-use adac_crypto_pkcs11::Pkcs11Provider;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::Serialize;
@@ -83,7 +82,7 @@ pub fn pkcs11_generate_command(
         });
     };
 
-    let mut crypto = Pkcs11Provider::new(module, pin, slot);
+    let mut crypto = shared::create_pkcs11_provider(module, pin, slot)?;
     let (kid, _, spki, _, _) =
         crypto
             .generate_key(key_type)

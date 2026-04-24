@@ -1,8 +1,76 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
+
+use adac::AdacError;
+use std::ops::{Deref, DerefMut};
+use std::sync::{LazyLock, Mutex, MutexGuard};
+
+// Tests use the first SoftHSM2 token with user pin '1234'. Initialize SoftHSM2 token with:
+// softhsm2-util --init-token --free --label "test-token" --pin 1234 --so-pin 4321
+static CRYPTO: LazyLock<Mutex<Option<adac_crypto_pkcs11::Pkcs11Provider>>> =
+    LazyLock::new(|| Mutex::new(None));
+
+struct TestPkcs11ProviderGuard(MutexGuard<'static, Option<adac_crypto_pkcs11::Pkcs11Provider>>);
+
+impl Deref for TestPkcs11ProviderGuard {
+    type Target = adac_crypto_pkcs11::Pkcs11Provider;
+
+    fn deref(&self) -> &Self::Target {
+        match self.0.as_ref() {
+            Some(crypto) => crypto,
+            None => unreachable!("test_pkcs11_provider initializes the PKCS#11 provider"),
+        }
+    }
+}
+
+impl DerefMut for TestPkcs11ProviderGuard {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self.0.as_mut() {
+            Some(crypto) => crypto,
+            None => unreachable!("test_pkcs11_provider initializes the PKCS#11 provider"),
+        }
+    }
+}
+
+fn default_pkcs11_module() -> Result<String, AdacError> {
+    if cfg!(target_os = "macos") {
+        Ok("/opt/homebrew/lib/softhsm/libsofthsm2.so".to_string())
+    } else if cfg!(target_os = "linux") && cfg!(target_arch = "aarch64") {
+        Ok("/usr/lib/aarch64-linux-gnu/softhsm/libsofthsm2.so".to_string())
+    } else if cfg!(target_os = "linux") && cfg!(target_arch = "x86_64") {
+        Ok("/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so".to_string())
+    } else {
+        Err(AdacError::CryptoProviderError(
+            "No default PKCS#11 module path is defined for this platform".to_string(),
+        ))
+    }
+}
+
+fn create_test_pkcs11_provider() -> Result<adac_crypto_pkcs11::Pkcs11Provider, AdacError> {
+    let module = if let Ok(module) = std::env::var("PKCS11_MODULE") {
+        module
+    } else {
+        default_pkcs11_module()?
+    };
+    let pin = std::env::var("PKCS11_PIN").unwrap_or_else(|_| "1234".to_string());
+    let slot = std::env::var("PKCS11_SLOT").ok();
+
+    adac_crypto_pkcs11::Pkcs11Provider::new(module, pin, slot)
+}
+
+fn test_pkcs11_provider() -> Result<TestPkcs11ProviderGuard, AdacError> {
+    let mut crypto = CRYPTO.lock().map_err(|_| {
+        AdacError::CryptoProviderError("PKCS#11 test provider mutex poisoned".to_string())
+    })?;
+    if crypto.is_none() {
+        *crypto = Some(create_test_pkcs11_provider()?);
+    }
+    Ok(TestPkcs11ProviderGuard(crypto))
+}
 
 #[cfg(test)]
 mod tests {
+    use super::test_pkcs11_provider;
     use adac::certificate::AdacCertificate;
     use adac::token::AdacToken;
     use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
@@ -12,13 +80,6 @@ mod tests {
         convert_public_key, load_certificates, load_key, save_certificates, verify_chain,
     };
     use std::ops::{Deref, DerefMut};
-    use std::sync::{LazyLock, Mutex};
-
-    // Tests use the first SoftHSM2 token with user pin '1234'. Initialize SoftHSM2 token with:
-    // softhsm2-util --init-token --free --label "test-token" --pin 1234 --so-pin 4321
-
-    static CRYPTO: LazyLock<Mutex<adac_crypto_pkcs11::Pkcs11Provider>> =
-        LazyLock::new(|| Mutex::new(adac_crypto_pkcs11::Pkcs11Provider::default()));
 
     #[test]
     fn cryptoki_ec_p256_chain_sig() {
@@ -172,7 +233,7 @@ mod tests {
     }
 
     fn cryptoki_chain_sig_test(key_type: KeyOptions, keys: Vec<(&str, &str)>) {
-        let mut crypto = CRYPTO.lock().unwrap();
+        let mut crypto = test_pkcs11_provider().unwrap();
 
         let mut chain = vec![];
         let mut export = vec![];
@@ -221,7 +282,7 @@ mod tests {
 
     #[test]
     fn cryptoki_token() {
-        let mut crypto = CRYPTO.lock().unwrap();
+        let mut crypto = test_pkcs11_provider().unwrap();
         let key_type = EcdsaP384Sha384;
         let key_path = "resources/keys/EcdsaP384Key-0.pk8";
         let str_kid = "b1ac929e1db189bcc276f40f415365986356419933659b1952f7b5b5191a4656";
@@ -259,7 +320,7 @@ mod tests {
 
     #[test]
     fn ecdsa_p256_chain() {
-        let crypto = CRYPTO.lock().unwrap();
+        let crypto = test_pkcs11_provider().unwrap();
 
         let chain = load_certificates("resources/chains/chain.EcdsaP256").unwrap();
         assert_eq!(chain.len(), 4);
@@ -268,7 +329,7 @@ mod tests {
 
     #[test]
     fn ecdsa_p384_chain() {
-        let crypto = CRYPTO.lock().unwrap();
+        let crypto = test_pkcs11_provider().unwrap();
 
         let chain = load_certificates("resources/chains/chain.EcdsaP384").unwrap();
         assert_eq!(chain.len(), 4);
@@ -277,7 +338,7 @@ mod tests {
 
     #[test]
     fn ecdsa_p521_chain() {
-        let crypto = CRYPTO.lock().unwrap();
+        let crypto = test_pkcs11_provider().unwrap();
 
         let chain = load_certificates("resources/chains/chain.EcdsaP521").unwrap();
         assert_eq!(chain.len(), 4);
@@ -287,7 +348,7 @@ mod tests {
     #[ignore]
     #[test]
     fn ed25519_chain() {
-        let crypto = CRYPTO.lock().unwrap();
+        let crypto = test_pkcs11_provider().unwrap();
 
         let chain = load_certificates("resources/chains/chain.Ed25519").unwrap();
         assert_eq!(chain.len(), 4);
@@ -297,7 +358,7 @@ mod tests {
     #[ignore]
     #[test]
     fn ed448_chain() {
-        let crypto = CRYPTO.lock().unwrap();
+        let crypto = test_pkcs11_provider().unwrap();
 
         let chain = load_certificates("resources/chains/chain.Ed448").unwrap();
         assert_eq!(chain.len(), 4);
@@ -306,7 +367,7 @@ mod tests {
 
     #[test]
     fn rsa_3072_chain() {
-        let crypto = CRYPTO.lock().unwrap();
+        let crypto = test_pkcs11_provider().unwrap();
 
         let chain = load_certificates("resources/chains/chain.Rsa3072").unwrap();
         assert_eq!(chain.len(), 4);
@@ -315,7 +376,7 @@ mod tests {
 
     #[test]
     fn rsa_4096_chain() {
-        let crypto = CRYPTO.lock().unwrap();
+        let crypto = test_pkcs11_provider().unwrap();
 
         let chain = load_certificates("resources/chains/chain.Rsa4096").unwrap();
         assert_eq!(chain.len(), 4);

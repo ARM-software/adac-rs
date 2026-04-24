@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
@@ -34,7 +34,8 @@ static WHITE_HEAVY_CHECK_MARK: Emoji<'_, '_> = Emoji("✅️", "");
 static WARNING: Emoji<'_, '_> = Emoji("⚠️", "");
 
 pub fn adac_check(module: String, pin: String, label: Option<String>) {
-    let (pkcs11, slot, _session) = adac_cryptoki::pkcs11_create_session(module, pin, label);
+    let (pkcs11, slot, _session) =
+        adac_cryptoki::pkcs11_create_session(module, pin, label).unwrap();
 
     if let Ok(mechanisms) = pkcs11.get_mechanism_list(slot) {
         println!("\n┏━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━┓");
@@ -180,7 +181,8 @@ static TESTS: [(KeyOptions, &str, &str, &str); 7] = [
 ];
 
 pub fn adac_test(module: String, pin: String, label: Option<String>) {
-    let (_pkcs11, _slot, session) = adac_cryptoki::pkcs11_create_session(module, pin, label);
+    let (_pkcs11, _slot, session) =
+        adac_cryptoki::pkcs11_create_session(module, pin, label).unwrap();
     let spinner_style = ProgressStyle::with_template("{bar} {wide_msg}").unwrap();
 
     for t in TESTS {

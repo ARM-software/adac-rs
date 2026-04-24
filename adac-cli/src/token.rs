@@ -6,7 +6,6 @@ use adac::token::{self, AdacToken};
 use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
 use adac::{AdacError, KeyOptions, TokenHeader};
 use adac_crypto::utils::{convert_signature, load_key};
-use adac_crypto_pkcs11::Pkcs11Provider;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::Serialize;
@@ -377,7 +376,7 @@ fn load_signing_provider(
         let slot = resolve_pkcs11_slot(slot);
         let pin = resolve_pkcs11_pin(pin, pin_file, pin_env)?;
 
-        let mut crypto = Pkcs11Provider::new(module, pin, slot);
+        let mut crypto = shared::create_pkcs11_provider(module, pin, slot)?;
         crypto
             .load_key(key_type, AdacKeyFormat::KeyId, key_id.as_slice())
             .map_err(|e| CommandError::AdacError {
