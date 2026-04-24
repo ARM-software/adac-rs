@@ -1,8 +1,8 @@
 // Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
 use adac::KeyOptions::*;
+use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
 use adac::{AdacError, KeyOptions};
 use adac_crypto::utils::{read_certificates, read_key};
 use adac_cryptoki::private::{generate_keypair, import_key, sign};

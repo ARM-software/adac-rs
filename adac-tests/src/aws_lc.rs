@@ -3,10 +3,10 @@
 
 #[cfg(test)]
 mod tests {
-    use adac::certificate::AdacCertificate;
-    use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
     use adac::KeyOptions;
     use adac::KeyOptions::*;
+    use adac::certificate::AdacCertificate;
+    use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
     use adac_crypto::utils::*;
 
     #[test]
@@ -73,9 +73,11 @@ mod tests {
         bytes[signature_offset + adac::MLDSA_65_SIGNATURE_UNPADDED] ^= 0x01;
         let certificate = AdacCertificate::from_bytes(bytes).unwrap();
 
-        assert!(certificate
-            .verify(chain.last().unwrap().get_public_key(), &crypto)
-            .is_err());
+        assert!(
+            certificate
+                .verify(chain.last().unwrap().get_public_key(), &crypto)
+                .is_err()
+        );
     }
 
     #[test]

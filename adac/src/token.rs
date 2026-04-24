@@ -3,7 +3,7 @@
 
 use crate::traits::AdacCryptoProvider;
 use crate::{AdacError, KeyOptions, TokenHeader};
-use std::mem::{offset_of, MaybeUninit};
+use std::mem::{MaybeUninit, offset_of};
 
 pub struct AdacToken {
     token: Vec<u8>,

@@ -4,7 +4,7 @@
 use crate::public::AdacPublicKey;
 use adac::KeyOptions::SmSm2Sm3;
 use adac::{AdacError, KeyOptions};
-use der::{oid::AssociatedOid, Encode};
+use der::{Encode, oid::AssociatedOid};
 use pkcs8::DecodePrivateKey;
 use spki::{DecodePublicKey, EncodePublicKey};
 

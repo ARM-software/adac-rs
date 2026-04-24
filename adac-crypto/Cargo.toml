@@ -1,30 +1,34 @@
+# Copyright (c) 2019-2026, Arm Limited. All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+
 [package]
 name = "adac-crypto"
-version = "0.1.0"
-edition = "2021"
+authors.workspace = true
+version.workspace = true
+edition.workspace = true
 license = "BSD-3-Clause"
 
 [dependencies]
 adac = { path = "../adac" }
-base16ct = "0.2.0"
-base64 = "0.22"
-der = { version = "0.7.9", features = ["alloc"] }
-ecdsa = { version = "0.16.9", features = ["signing", "verifying", "pkcs8"] }
-ed25519 = { version = "2.2.3", features = ["alloc", "pkcs8"] }
-ed448 = { version = "0.5.0-rc.5", features = ["alloc", "pkcs8"] }
-ed448-goldilocks-plus = { version = "0.16.0", features = ["signing", "pkcs8"] }
-elliptic-curve = { version = "0.13.8", features = ["sec1", "pem", "pkcs8"] }
+base16ct = { workspace = true }
+base64 = { workspace = true }
+der = { workspace = true }
+ecdsa = { workspace = true }
+ed25519 = { workspace = true }
+ed448 = { workspace = true }
+ed448-goldilocks-plus = { workspace = true }
+elliptic-curve = { workspace = true }
 hybrid-array = "0.3"
-ml-dsa = { version = "0.1.0-rc.8", features = ["pkcs8"] }
-p256 = { version = "0.13.2", features = ["ecdsa", "jwk", "pem", "pkcs8"] }
-p384 = { version = "0.13.1", features = ["ecdsa", "jwk", "pem", "pkcs8"] }
-p521 = { version = "0.13.3", features = ["ecdsa", "jwk", "pem", "pkcs8"] }
-pem = "3.0"
-pkcs8 = { version = "0.10.2", features = ["pem"] }
-rsa = { version = "0.9", features = ["pem"] }
-sec1 = { version = "0.7.3", features = ["der", "pem"] }
-spki = { version = "0.7.3", features = ["alloc", "fingerprint", "pem", "std"] }
-sm2 = { version = "0.13.3", features = ["arithmetic", "dsa", "pkcs8"] }
+ml-dsa = { workspace = true }
+p256 = { workspace = true }
+p384 = { workspace = true }
+p521 = { workspace = true }
+pem = { workspace = true }
+pkcs8 = { workspace = true }
+rsa = { workspace = true }
+sec1 = { workspace = true }
+spki = { workspace = true }
+sm2 = { workspace = true }
 
 [lints.clippy]
 type_complexity = "allow"

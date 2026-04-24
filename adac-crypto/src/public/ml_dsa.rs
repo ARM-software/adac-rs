@@ -6,9 +6,9 @@ use adac::{
     AdacError,
     KeyOptions::{self, *},
 };
-use hybrid_array::{typenum::U32, Array};
+use hybrid_array::{Array, typenum::U32};
 use ml_dsa::pkcs8::der::{self, AnyRef, Encode, Reader, SecretDocument, SliceReader};
-use ml_dsa::pkcs8::{self, spki, PrivateKeyInfoRef};
+use ml_dsa::pkcs8::{self, PrivateKeyInfoRef, spki};
 use ml_dsa::pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey};
 use ml_dsa::signature::Keypair;
 use ml_dsa::{MlDsa44, MlDsa65, MlDsa87, MlDsaParams, SigningKey, VerifyingKey};

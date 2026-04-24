@@ -71,10 +71,10 @@ fn test_pkcs11_provider() -> Result<TestPkcs11ProviderGuard, AdacError> {
 #[cfg(test)]
 mod tests {
     use super::test_pkcs11_provider;
+    use adac::KeyOptions::*;
     use adac::certificate::AdacCertificate;
     use adac::token::AdacToken;
     use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
-    use adac::KeyOptions::*;
     use adac::{KeyOptions, TokenHeader};
     use adac_crypto::utils::{
         convert_public_key, load_certificates, load_key, save_certificates, verify_chain,

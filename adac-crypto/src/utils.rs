@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 use crate::public::{
-    self, ec_dsa, ed_25519, ed_448,
-    ml_dsa::{from_spki_mldsa, KeyConverter},
-    AdacPublicKey,
+    self, AdacPublicKey, ec_dsa, ed_448, ed_25519,
+    ml_dsa::{KeyConverter, from_spki_mldsa},
 };
-use adac::{certificate::AdacCertificate, traits::AdacCryptoProvider};
 use adac::{AdacError, CertificateRole, KeyOptions, KeyOptions::*};
+use adac::{certificate::AdacCertificate, traits::AdacCryptoProvider};
 use base64::prelude::*;
 use der::oid::AssociatedOid;
 use ml_dsa::{MlDsa44, MlDsa65, MlDsa87};

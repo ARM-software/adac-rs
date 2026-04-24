@@ -3,12 +3,12 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::{run_test_with, TestSettings};
-    use adac::certificate::AdacCertificate;
-    use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
+    use crate::{TestSettings, run_test_with};
     use adac::CertificateRole::{AdacCrtRoleInt, AdacCrtRoleLeaf, AdacCrtRoleRoot};
     use adac::CertificateUsage::AdacUsageRma;
     use adac::KeyOptions::*;
+    use adac::certificate::AdacCertificate;
+    use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
     use adac::{AdacVersion, CertificateHeader, KeyOptions};
     use adac_crypto::utils::{
         get_public_key, load_certificates, load_key, read_certificates, save_certificates,
@@ -287,9 +287,11 @@ mod tests {
         bytes[signature_offset + adac::ED448_SIGNATURE_SIZE_UNPADDED] ^= 0x01;
         let certificate = AdacCertificate::from_bytes(bytes).unwrap();
 
-        assert!(certificate
-            .verify(chain.last().unwrap().get_public_key(), &crypto)
-            .is_err());
+        assert!(
+            certificate
+                .verify(chain.last().unwrap().get_public_key(), &crypto)
+                .is_err()
+        );
     }
 
     #[test]
@@ -370,9 +372,11 @@ mod tests {
             bytes[signature_offset + adac::MLDSA_65_SIGNATURE_UNPADDED] ^= 0x01;
             let certificate = AdacCertificate::from_bytes(bytes).unwrap();
 
-            assert!(certificate
-                .verify(chain.last().unwrap().get_public_key(), &crypto)
-                .is_err());
+            assert!(
+                certificate
+                    .verify(chain.last().unwrap().get_public_key(), &crypto)
+                    .is_err()
+            );
         });
     }
 
