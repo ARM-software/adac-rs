@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 use crate::ec_utils;
@@ -20,7 +20,7 @@ pub fn import_public_key(
     let pubkey = adac_crypto::public::get_sec1_octet_string_from_adac(key_type, public_key)?;
 
     let pubkey_template = vec![
-        Attribute::Token(true),
+        Attribute::Token(false),
         Attribute::Private(false),
         Attribute::Class(ObjectClass::PUBLIC_KEY),
         Attribute::Verify(true),

@@ -24,7 +24,6 @@ pub fn generate_ecdsa_keypair(
     let public_key_template = vec![
         Attribute::Token(true),
         Attribute::Private(false),
-        Attribute::Derive(true),
         Attribute::KeyType(KeyType::EC),
         Attribute::Verify(true),
         Attribute::EcParams(oid),
@@ -35,7 +34,6 @@ pub fn generate_ecdsa_keypair(
         Attribute::Private(true),
         Attribute::Sensitive(true),
         Attribute::Extractable(false),
-        Attribute::Derive(true),
         Attribute::Sign(true),
     ];
 
@@ -169,7 +167,6 @@ pub fn import_key(
         Attribute::Token(true),
         Attribute::Private(false),
         Attribute::Verify(true),
-        Attribute::Derive(true),
         Attribute::KeyType(kt),
         Attribute::Class(ObjectClass::PUBLIC_KEY),
         Attribute::EcParams(ec_params.clone()),
@@ -187,7 +184,6 @@ pub fn import_key(
         Attribute::Private(true),
         Attribute::Sensitive(true),
         Attribute::Extractable(false),
-        Attribute::Derive(true),
         Attribute::Sign(true),
         Attribute::KeyType(kt),
         Attribute::Class(ObjectClass::PRIVATE_KEY),
