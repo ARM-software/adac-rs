@@ -133,7 +133,7 @@ enum Commands {
         #[arg(short, long, value_name = "LIBRARY")]
         module: Option<String>,
         /// Slot label identifying the token. Defaults to $PKCS11_SLOT.
-        #[arg(short, long = "slot", value_name = "SLOT_LABEL")]
+        #[arg(long = "slot", value_name = "SLOT_LABEL")]
         slot: Option<String>,
         /// User PIN for the slot. Defaults to --pin-file/--pin-env or $PKCS11_PIN.
         #[arg(long, value_name = "PIN")]
