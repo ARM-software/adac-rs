@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 use crate::{CommandError, CommandOutput, config};
@@ -91,14 +91,14 @@ impl AdacCryptoProvider for PrepareCryptoProvider {
         key_type: adac::KeyOptions,
         data: &[u8],
     ) -> Result<Vec<u8>, adac::AdacError> {
+        if self.key_type != key_type {
+            return Err(adac::AdacError::InconsistentCrypto);
+        }
         let (_, _, sig_size) = adac_sizes_from_crypto(key_type)?;
         let mut v = Vec::<u8>::with_capacity(sig_size);
         v.extend(std::iter::repeat_n(0, sig_size));
         self.tbs = data.to_vec();
         self.hash = self.hash(key_type, data)?;
-        if self.key_type != key_type {
-            // TODO
-        }
         Ok(v)
     }
 
@@ -247,11 +247,11 @@ impl AdacCryptoProvider for MergeCryptoProvider {
         _data: &[u8],
     ) -> Result<Vec<u8>, adac::AdacError> {
         if self.key_type != key_type {
-            // TODO
+            return Err(adac::AdacError::InconsistentCrypto);
         }
         let (_, _, sig_size) = adac_sizes_from_crypto(key_type)?;
         if self.signature.len() != sig_size {
-            // TODO: Check
+            return Err(adac::AdacError::InvalidLength);
         }
         Ok(self.signature.clone())
     }
@@ -349,4 +349,44 @@ pub fn merge_command(
         certificate,
         path,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prepare_crypto_provider_rejects_key_type_mismatch() {
+        let mut provider = PrepareCryptoProvider::new(KeyOptions::EcdsaP384Sha384, vec![], vec![]);
+
+        let err = provider
+            .sign(KeyOptions::EcdsaP256Sha256, b"test")
+            .unwrap_err();
+
+        assert!(matches!(err, adac::AdacError::InconsistentCrypto));
+        assert!(provider.hash.is_empty());
+        assert!(provider.tbs.is_empty());
+    }
+
+    #[test]
+    fn merge_crypto_provider_rejects_key_type_mismatch() {
+        let mut provider = MergeCryptoProvider::new(KeyOptions::EcdsaP384Sha384, vec![0u8; 96]);
+
+        let err = provider
+            .sign(KeyOptions::EcdsaP256Sha256, b"test")
+            .unwrap_err();
+
+        assert!(matches!(err, adac::AdacError::InconsistentCrypto));
+    }
+
+    #[test]
+    fn merge_crypto_provider_rejects_invalid_signature_length() {
+        let mut provider = MergeCryptoProvider::new(KeyOptions::EcdsaP384Sha384, vec![0u8; 1]);
+
+        let err = provider
+            .sign(KeyOptions::EcdsaP384Sha384, b"test")
+            .unwrap_err();
+
+        assert!(matches!(err, adac::AdacError::InvalidLength));
+    }
 }
