@@ -51,10 +51,11 @@ extensions = ""
 [token]
 version_minor = 1
 requested_permissions = "0x0000000003FFFFFFFFFFFFFF00000000"
-extensions = "0x01020304"
+extensions = "01020304"
 ```
 
-Token challenges must be 32 bytes encoded as hex with a `0x` prefix. Token
+Token challenges must be 32-byte base16 strings without a `0x` prefix. Token
+permission values remain `0x`-prefixed 128-bit hexadecimal integers, and token
 files written with `--output` are raw binary for compatibility with existing
 tooling. Then sign a token directly or prepare it for offline signing:
 
@@ -62,23 +63,23 @@ tooling. Then sign a token directly or prepare it for offline signing:
 cargo run -p adac-cli -- token-sign \
   --config token.toml \
   --section token \
-  --private adac-tests/resources/keys/EcdsaP384Key-0.pk8 \
+  --private-key adac-tests/resources/keys/EcdsaP384Key-0.pk8 \
   --output token.bin \
-  0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+  000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
 
 cargo run -p adac-cli -- token-offline-prepare \
   --config token.toml \
-  --key-type EcdsaP384Sha384 \
   --section token \
   --output prepared-token.bin \
   --tbs prepared-token.tbs \
   --hash prepared-token.hash \
-  0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+  000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f \
+  EcdsaP384Sha384
 
 cargo run -p adac-cli -- verify \
-  --path adac-tests/resources/roots/root.EcdsaP384 \
+  adac-tests/resources/roots/root.EcdsaP384 \
   --token token.bin \
-  --challenge 0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+  --challenge 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
 ```
 
 ## Testing

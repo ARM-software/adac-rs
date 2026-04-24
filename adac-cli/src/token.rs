@@ -82,26 +82,7 @@ pub fn token_sign_command(
         };
 
         if let Some(permissions) = permissions {
-            let permissions = if let Some(hex) = permissions.strip_prefix("0x") {
-                hex::decode(hex).map_err(|_| CommandError::AdacError {
-                    source: anyhow::anyhow!("Value for 'permissions' is not properly hex encoded."),
-                })?
-            } else {
-                return Err(CommandError::AdacError {
-                    source: anyhow::anyhow!("Value for 'permissions' does not start with '0x'."),
-                });
-            };
-            if permissions.len() != 16 {
-                return Err(CommandError::AdacError {
-                    source: anyhow::anyhow!("Length for 'permissions' is invalid."),
-                });
-            }
-
-            let requested_permissions =
-                u128::from_be_bytes(permissions.as_slice().try_into().unwrap());
-            header
-                .requested_permissions
-                .copy_from_slice(requested_permissions.to_le_bytes().as_ref());
+            header.requested_permissions = parse_requested_permissions_parameter(permissions)?;
         }
 
         let extensions: Vec<u8> = vec![];
@@ -204,26 +185,7 @@ pub fn token_prepare_command(
         };
 
         if let Some(permissions) = permissions {
-            let permissions = if let Some(hex) = permissions.strip_prefix("0x") {
-                hex::decode(hex).map_err(|_| CommandError::AdacError {
-                    source: anyhow::anyhow!("Value for 'permissions' is not properly hex encoded."),
-                })?
-            } else {
-                return Err(CommandError::AdacError {
-                    source: anyhow::anyhow!("Value for 'permissions' does not start with '0x'."),
-                });
-            };
-            if permissions.len() != 16 {
-                return Err(CommandError::AdacError {
-                    source: anyhow::anyhow!("Length for 'permissions' is invalid."),
-                });
-            }
-
-            let requested_permissions =
-                u128::from_be_bytes(permissions.as_slice().try_into().unwrap());
-            header
-                .requested_permissions
-                .copy_from_slice(requested_permissions.to_le_bytes().as_ref());
+            header.requested_permissions = parse_requested_permissions_parameter(permissions)?;
         }
 
         let extensions: Vec<u8> = vec![];
@@ -367,34 +329,8 @@ fn write_output(path: &Option<PathBuf>, contents: &[u8]) -> Result<(), CommandEr
     Ok(())
 }
 
-fn decode_hex_parameter(value: &str, parameter: &str) -> Result<Vec<u8>, CommandError> {
-    let value = value.strip_prefix("0x").unwrap_or(value);
-    hex::decode(value).map_err(|_| CommandError::InvalidParameter {
-        parameter: parameter.to_string(),
-    })
-}
-
-fn decode_hex_parameter_with_length(
-    value: &str,
-    parameter: &str,
-    expected_len: usize,
-) -> Result<Vec<u8>, CommandError> {
-    let value = decode_hex_parameter(value, parameter)?;
-    if value.len() != expected_len {
-        return Err(CommandError::InvalidParameter {
-            parameter: parameter.to_string(),
-        });
-    }
-    Ok(value)
-}
-
 pub(crate) fn decode_challenge_parameter(value: &str) -> Result<Vec<u8>, CommandError> {
-    let value = value
-        .strip_prefix("0x")
-        .ok_or(CommandError::InvalidParameter {
-            parameter: "--challenge".to_string(),
-        })?;
-    decode_hex_parameter_with_length(value, "--challenge", 32)
+    shared::decode_base16_parameter_with_length(value, "--challenge", 32)
 }
 
 fn parse_token_key_type(value: &str) -> Result<KeyOptions, CommandError> {
@@ -408,6 +344,12 @@ fn parse_token_key_type(value: &str) -> Result<KeyOptions, CommandError> {
     Ok(key_type)
 }
 
+fn parse_requested_permissions_parameter(value: &str) -> Result<[u8; 16], CommandError> {
+    let permissions = shared::decode_hex_integer_parameter_with_length(value, "PERMISSIONS", 16)?;
+    let permissions = u128::from_be_bytes(permissions.as_slice().try_into().unwrap());
+    Ok(permissions.to_le_bytes())
+}
+
 fn load_signing_provider(
     private_key: &Option<PathBuf>,
     module: &Option<String>,
@@ -419,7 +361,7 @@ fn load_signing_provider(
     key_type: &Option<String>,
 ) -> Result<(KeyOptions, Box<dyn AdacCryptoProvider>), CommandError> {
     if let Some(key_id) = key_id {
-        let key_id = decode_hex_parameter(key_id, "--key-id")?;
+        let key_id = shared::decode_base16_parameter(key_id, "--key-id")?;
         let key_type = key_type.as_ref().ok_or(CommandError::AdacError {
             source: anyhow::anyhow!("Parameter --key-type is required when using --key-id."),
         })?;
@@ -614,10 +556,10 @@ requested_permissions = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
 [token]
 version_minor = 1
 requested_permissions = "0x0000000003FFFFFFFFFFFFFF00000000"
-extensions = "0x01020304"
+extensions = "01020304"
 "#;
     const TOKEN_CHALLENGE: &str =
-        "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
 
     fn fixture_key_path(name: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -661,7 +603,7 @@ extensions = "0x01020304"
         let (key_type, private_key) = load_key(private).unwrap();
         let public_key = get_public_key(key_type, &private_key).unwrap();
         let crypto = adac_crypto_rust::RustCryptoProvider::default();
-        let challenge = decode_hex_parameter(&challenge, "--challenge").unwrap();
+        let challenge = shared::decode_base16_parameter(&challenge, "--challenge").unwrap();
 
         token
             .verify(public_key.as_slice(), challenge.as_slice(), &crypto)
@@ -709,7 +651,7 @@ extensions = "0x01020304"
         let (key_type, private_key) = load_key(private).unwrap();
         let public_key = get_public_key(key_type, &private_key).unwrap();
         let crypto = adac_crypto_rust::RustCryptoProvider::default();
-        let challenge = decode_hex_parameter(&challenge, "--challenge").unwrap();
+        let challenge = shared::decode_base16_parameter(&challenge, "--challenge").unwrap();
 
         token
             .verify(public_key.as_slice(), challenge.as_slice(), &crypto)
@@ -789,7 +731,7 @@ extensions = "0x01020304"
         let token = AdacToken::from_bytes(BASE64_STANDARD.decode(&report.token).unwrap()).unwrap();
         let public_key = get_public_key(detected_key_type, &private_key).unwrap();
         let crypto = adac_crypto_rust::RustCryptoProvider::default();
-        let challenge = decode_hex_parameter(&challenge, "--challenge").unwrap();
+        let challenge = shared::decode_base16_parameter(&challenge, "--challenge").unwrap();
 
         token
             .verify(public_key.as_slice(), challenge.as_slice(), &crypto)
@@ -877,7 +819,7 @@ extensions = "0x01020304"
         let private = fixture_key_path("EcdsaP384Key-0.pk8");
 
         let err = token_sign_command(
-            "00112233",
+            &"00112233".to_string(),
             &Some(config_path),
             &None,
             &Some(private),
@@ -896,6 +838,71 @@ extensions = "0x01020304"
         match err {
             CommandError::InvalidParameter { parameter } => {
                 assert_eq!(parameter, "--challenge");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn token_sign_command_rejects_prefixed_challenge() {
+        let dir = tests::make_temp_dir("adac-cli-token-tests");
+        let config_path = write_config(&dir);
+        let private = fixture_key_path("EcdsaP384Key-0.pk8");
+
+        let err = token_sign_command(
+            &format!("0x{TOKEN_CHALLENGE}"),
+            &Some(config_path),
+            &None,
+            &Some(private),
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &Some("token".to_string()),
+        )
+        .unwrap_err();
+
+        match err {
+            CommandError::InvalidParameter { parameter } => {
+                assert_eq!(parameter, "--challenge");
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn token_sign_command_rejects_permissions_without_lowercase_prefix() {
+        let dir = tests::make_temp_dir("adac-cli-token-tests");
+        let private = fixture_key_path("EcdsaP384Key-0.pk8");
+
+        let err = token_sign_command(
+            &TOKEN_CHALLENGE.to_string(),
+            &None,
+            &None,
+            &Some(private),
+            &None,
+            &None,
+            &Some("0X0000000003FFFFFFFFFFFFFF00000000".to_string()),
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &Some("token".to_string()),
+        )
+        .unwrap_err();
+
+        match err {
+            CommandError::InvalidParameter { parameter } => {
+                assert_eq!(parameter, "PERMISSIONS");
             }
             other => panic!("unexpected error: {other:?}"),
         }

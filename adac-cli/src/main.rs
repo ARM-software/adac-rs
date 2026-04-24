@@ -206,7 +206,7 @@ enum Commands {
         /// Read the PKCS#11 user PIN from the named environment variable (defaults to PKCS11_PIN).
         #[arg(long, value_name = "ENV")]
         pin_env: Option<String>,
-        /// PKCS#11 key identifier to use for signing.
+        /// PKCS#11 key identifier as base16 bytes.
         #[arg(short, long, value_name = "KEYID")]
         key_id: Option<String>,
         /// Public key to incorporate into the certificate.
@@ -257,7 +257,7 @@ enum Commands {
     /// Sign an authentication token.
     #[command(name = "token-sign", alias = "token")]
     TokenSign {
-        /// Token challenge (32 bytes hex-encoded value).
+        /// Token challenge as 32 base16-encoded bytes.
         #[arg(value_name = "CHALLENGE")]
         challenge: String,
         /// Token configuration file (TOML).
@@ -275,7 +275,7 @@ enum Commands {
         /// Slot label identifying the PKCS#11 token. Defaults to $PKCS11_SLOT.
         #[arg(long = "slot", value_name = "SLOT_LABEL")]
         slot: Option<String>,
-        /// Requested permissions (16 bytes hex-encoded value).
+        /// Requested permissions as a 16-byte hexadecimal integer with a lowercase 0x prefix.
         #[arg(value_name = "PERMISSIONS")]
         permissions: Option<String>,
         /// User PIN for the PKCS#11 slot. Defaults to --pin-file/--pin-env or $PKCS11_PIN.
@@ -287,7 +287,7 @@ enum Commands {
         /// Read the PKCS#11 user PIN from the named environment variable (defaults to PKCS11_PIN).
         #[arg(long, value_name = "ENV")]
         pin_env: Option<String>,
-        /// PKCS#11 key identifier to use for signing.
+        /// PKCS#11 key identifier as base16 bytes.
         #[arg(short, long, value_name = "KEYID")]
         key_id: Option<String>,
         /// Key type to sign with when using --key-id. If provided with --private-key, it must match the private key.
@@ -300,7 +300,7 @@ enum Commands {
     /// Prepare an offline token signature.
     #[command(name = "token-offline-prepare")]
     TokenSignOfflinePrepare {
-        /// Challenge bytes encoded as hex.
+        /// Token challenge as 32 base16-encoded bytes.
         #[arg(value_name = "CHALLENGE")]
         challenge: String,
         /// Token configuration file (TOML).
@@ -309,7 +309,7 @@ enum Commands {
         /// Key type used for the token signature (for example EcdsaP384Sha384).
         #[arg(value_name = "KEY_TYPE")]
         key_type: String,
-        /// Requested permissions (16 bytes hex-encoded value).
+        /// Requested permissions as a 16-byte hexadecimal integer with a lowercase 0x prefix.
         #[arg(value_name = "PERMISSIONS")]
         permissions: Option<String>,
         /// Configuration file section to apply (defaults to [defaults]).
@@ -346,7 +346,7 @@ enum Commands {
         /// Path to an authentication token to verify against the leaf certificate public key.
         #[arg(short, long, value_name = "TOKEN")]
         token: Option<PathBuf>,
-        /// Challenge bytes encoded as hex for token verification.
+        /// Token challenge as 32 base16-encoded bytes.
         #[arg(short, long, value_name = "CHALLENGE")]
         challenge: Option<String>,
     },

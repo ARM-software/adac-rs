@@ -85,6 +85,15 @@ These environment variables can be used instead of the above:
 * `PKCS11_PIN` - The user PIN needed to access the key (default name).
 * Custom environment variable – The user PIN, when you specify a different variable using `--pin-env`.
 
+### Hexadecimal input formats
+
+`adac-cli` accepts two different kinds of hexadecimal-looking input, and they are intentionally not interchangeable:
+
+* Base16-encoded byte strings represent raw bytes written as ASCII hex with no prefix. Use this form for values such as `--key-id`, token challenges, and `extensions`. A leading `0x` is rejected so byte strings cannot be confused with integers.
+* `0x`-prefixed hexadecimal integers represent 128-bit integer values written in conventional big-endian notation. Use this form for `soc_id`, `permissions_mask`, `requested_permissions`, and the token `PERMISSIONS` positional argument. The lowercase `0x` prefix is required because these values are parsed as integers and then converted to the little-endian byte layout used in ADAC headers.
+
+This distinction matters for correctness: byte strings are copied as-is, while integer values undergo an endian conversion before being encoded into certificates or tokens.
+
 ### display: Display certificate chain content.
 
 Use this subcommand to display information about the certificate or certificate chain contents.
@@ -218,7 +227,7 @@ Usage: adac-cli sign [OPTIONS] <CONFIG> <PUBLIC_KEY>
 | Flag | Description | Example | Default |
 |------|-------------|---------|---------|
 | `-i, --issuer` | Issuer certificate or certificate chain. | `--issuer my_cert.crt` | none, required for non-root certificates |
-| `-k, --key-id` | The identifier of the private key, when using PKCS#11 | `--key-id abcdef012345` | - |
+| `-k, --key-id` | The identifier of the private key as base16 bytes without a `0x` prefix, when using PKCS#11 | `--key-id abcdef012345` | - |
 | `-p, --private-key` | A file containing the private key of the issuer (or RoT), when not using PKCS#11. | `--private-key my_key.pk8` | |
 | `-o, --output` | Output file for the generated certificate or certificate chain. | `--output ap_team_debug.crt` | - |
 | `-s, --section` | Config file section to apply. | `--section intermediate` | - |
@@ -321,15 +330,15 @@ Usage: adac-cli token-sign [OPTIONS] <CHALLENGE> [PERMISSIONS]
 | Flag | Description | Example | Default |
 |------|-------------|---------|---------|
 | `-c, --config` | Token configuration file [(see here)](#token-configuration-file-format). | `--config token.toml` | none |
-| `-k, --key-id` | The identifier of the private key, when using PKCS#11. | `--key-id abcdef012345` | none |
+| `-k, --key-id` | The identifier of the private key as base16 bytes without a `0x` prefix, when using PKCS#11. | `--key-id abcdef012345` | none |
 | `--key-type` | Key type to sign with when using `--key-id`. If provided with `--private-key`, it must match the private key. | `--key-type EcdsaP384Sha384` | inferred from private key |
 | `-o, --output` | Write the resulting token to this file. | `--output token.bin` | stdout |
 | `-p, --private-key` | A file containing the private key in PKCS#8 format, when not using PKCS#11. | `--private-key signer.pk8` | none |
 | `-s, --section` | Config file section to apply. | `--section token` | `[defaults]` |
 
 Positional arguments:
-- `<CHALLENGE>`: Token challenge as a 32-byte `0x`-prefixed hex value.
-- `[PERMISSIONS]`: Requested permissions as a 16-byte `0x`-prefixed hex value.
+- `<CHALLENGE>`: Token challenge as a 32-byte base16 string without a `0x` prefix.
+- `[PERMISSIONS]`: Requested permissions as a 16-byte hexadecimal integer with a lowercase `0x` prefix.
 
 See the [PKCS#11 options](#pkcs11-key-specifier-options) section for information on retrieving the key using PKCS#11, including selecting the token by slot label with `--slot`.
 
@@ -338,7 +347,7 @@ When `--output` is omitted, the token is printed to stdout as base64. When `--ou
 Example command to sign a token using a local private key:
 ```
 adac-cli token-sign \
-    0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff \
+    00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff \
     0xffffffffffffffffffffffffffffffff \
     --private-key resources/keys/EcdsaP384Key-2.pk8 \
     --output token.bin
@@ -361,9 +370,9 @@ Usage: adac-cli token-offline-prepare [OPTIONS] <CHALLENGE> <KEY_TYPE> [PERMISSI
 | `--hash` | File to store the hash of the TBS payload. | `--hash token.sha384` | stdout |
 
 Positional arguments:
-- `<CHALLENGE>`: Token challenge as a 32-byte `0x`-prefixed hex value.
+- `<CHALLENGE>`: Token challenge as a 32-byte base16 string without a `0x` prefix.
 - `<KEY_TYPE>`: Token signature key type, for example `EcdsaP384Sha384`.
-- `[PERMISSIONS]`: Requested permissions as a 16-byte `0x`-prefixed hex value.
+- `[PERMISSIONS]`: Requested permissions as a 16-byte hexadecimal integer with a lowercase `0x` prefix.
 
 Currently the following token signature key types are supported:
  - EcdsaP256Sha256
@@ -383,7 +392,7 @@ When you do not specify output files, the command prints the following artifacts
 Example:
 ```
 adac-cli token-offline-prepare \
-    0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff \
+    00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff \
     EcdsaP384Sha384 \
     0xffffffffffffffffffffffffffffffff \
     --output unsigned-token.bin \
@@ -413,7 +422,7 @@ Example:
 ```
 # Prepare unsigned token and TBS
 adac-cli token-offline-prepare \
-    0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff \
+    00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff \
     EcdsaP384Sha384 \
     0xffffffffffffffffffffffffffffffff \
     --output unsigned-token.bin \
@@ -442,7 +451,7 @@ Positional arguments:
 
 | Flag | Description | Example | Default |
 |------|-------------|---------|---------|
-| `-c, --challenge` | Challenge bytes encoded as hex for token verification. Must be provided together with `--token`. | `--challenge 0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff` | none |
+| `-c, --challenge` | Token challenge as a 32-byte base16 string without a `0x` prefix. Must be provided together with `--token`. | `--challenge 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff` | none |
 | `-t, --token` | Path to an authentication token to verify against the leaf certificate public key. Must be provided together with `--challenge`. | `--token token.bin` | none |
 
 The adac-cli exit status will be non-zero if the chain or token does not verify successfully.
@@ -453,7 +462,7 @@ adac-cli verify test/crt1.crt
 
 adac-cli verify test/crt1.crt \
     --token token.bin \
-    --challenge 0x00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+    --challenge 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
 ```
 
 ## Configuration file format
@@ -475,7 +484,7 @@ The settings and their values are described below and in the
 | soc_class | SoC family/class | Vendor-defined identifier for a family/revision of devices; can scope the cert to a device class. | 0 |
 | soc_id | Unique SoC identifier | 128‑bit device-unique ID (e.g., serial/OTP). Non-zero value locks the certificate to one device. | 0x00000000000000000000000000000000 |
 | permissions_mask | Allowed debug permissions | Bit mask of logical permissions this certificate permits. Combined with other certificates and SoC masks to compute effective permissions. | 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF |
-| extensions | Optional TLV extensions | Optional fields (e.g., sw_partition_id, target_identity). Empty means no extra constraints. |  |
+| extensions | Optional TLV extensions | Optional fields (e.g., sw_partition_id, target_identity) as base16-encoded bytes without a `0x` prefix. Empty means no extra constraints. |  |
 
 Example configuration:
 ```
@@ -519,8 +528,8 @@ The token signing configuration file is also [TOML format](https://toml.io/en/).
 |---|---|---|---|
 | version_major | Token format version (major) | Must be `1`. | 1 |
 | version_minor | Token format version (minor) | Currently `0` or `1`. | 1 |
-| requested_permissions | Requested debug permissions | A 16-byte `0x`-prefixed hex string. | `0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF` |
-| extensions | Optional TLV extensions | Raw extension bytes as a `0x`-prefixed hex string. Use an empty string when no extensions are needed. | `0x01020304` |
+| requested_permissions | Requested debug permissions | A 16-byte hexadecimal integer with a lowercase `0x` prefix. | `0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF` |
+| extensions | Optional TLV extensions | Raw extension bytes as a base16 string without a `0x` prefix. Use an empty string when no extensions are needed. | `01020304` |
 
 Example configuration:
 ```
@@ -533,7 +542,7 @@ extensions = ""
 [token]
 version_minor = 1
 requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
-extensions = "0x01020304"
+extensions = "01020304"
 ```
 
 ## License

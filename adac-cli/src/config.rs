@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 use adac::{AdacError, AdacVersion, CertificateRole, CertificateUsage};
@@ -187,23 +187,7 @@ pub fn parse_adac_configuration(
             "Value for default 'soc_id' is not String".to_string(),
         ))?;
 
-    let id = if let Some(hex) = id.strip_prefix("0x") {
-        hex::decode(hex).map_err(|_| {
-            AdacError::Encoding("Value for 'soc_id' is not properly hex encoded".to_string())
-        })?
-    } else {
-        return Err(AdacError::Encoding(
-            "Value for 'soc_id' does not start with '0x'".to_string(),
-        ));
-    };
-    if id.len() != 16 {
-        return Err(AdacError::Encoding(
-            "Length for 'soc_id' is invalid".to_string(),
-        ));
-    }
-    let mut soc_id: [u8; 16] = [0u8; 16];
-    let id = u128::from_be_bytes(id.as_slice().try_into().unwrap());
-    soc_id.copy_from_slice(id.to_le_bytes().as_ref());
+    let soc_id = parse_hex_u128_field(id, "default 'soc_id'")?;
 
     let permissions = defaults
         .get("permissions_mask")
@@ -215,26 +199,7 @@ pub fn parse_adac_configuration(
             "Value for default 'permissions_mask' is not String".to_string(),
         ))?;
 
-    let permissions = if let Some(hex) = permissions.strip_prefix("0x") {
-        hex::decode(hex).map_err(|_| {
-            AdacError::Encoding(
-                "Value for default 'permissions_mask' is not properly hex encoded".to_string(),
-            )
-        })?
-    } else {
-        return Err(AdacError::Encoding(
-            "Value for 'permissions_mask' does not start with '0x'".to_string(),
-        ));
-    };
-    if permissions.len() != 16 {
-        return Err(AdacError::Encoding(
-            "Length for default 'permissions_mask' is invalid".to_string(),
-        ));
-    }
-
-    let permissions = u128::from_be_bytes(permissions.as_slice().try_into().unwrap());
-    let mut permissions_mask: [u8; 16] = [0u8; 16];
-    permissions_mask.copy_from_slice(permissions.to_le_bytes().as_ref());
+    let permissions_mask = parse_hex_u128_field(permissions, "default 'permissions_mask'")?;
 
     let extensions = defaults
         .get("extensions")
@@ -245,15 +210,7 @@ pub fn parse_adac_configuration(
         .ok_or(AdacError::Encoding(
             "Value for default 'extensions' is not String".to_string(),
         ))?;
-    let extensions = if !extensions.is_empty() {
-        hex::decode(extensions).map_err(|_| {
-            AdacError::Encoding(
-                "Value for default 'extensions' is not properly hex encoded".to_string(),
-            )
-        })?
-    } else {
-        vec![]
-    };
+    let extensions = parse_base16_bytes_field(extensions, "default 'extensions'")?;
 
     let mut c = AdacCertificateConfig {
         format_version,
@@ -398,68 +355,21 @@ pub fn parse_adac_configuration(
         let soc_id = soc_id.as_str().ok_or(AdacError::Encoding(
             "Value for 'soc_id' is not String".to_string(),
         ))?;
-        let soc_id = if let Some(hex) = soc_id.strip_prefix("0x") {
-            hex::decode(hex).map_err(|_| {
-                AdacError::Encoding("Value for 'soc_id' is not properly hex encoded".to_string())
-            })?
-        } else {
-            return Err(AdacError::Encoding(
-                "Value for 'soc_id' does not start with '0x'".to_string(),
-            ));
-        };
-        if soc_id.len() != 16 {
-            return Err(AdacError::Encoding(
-                "Length for 'soc_id' is invalid".to_string(),
-            ));
-        }
-        let soc_id = u128::from_be_bytes(soc_id.as_slice().try_into().unwrap());
-        c.soc_id.copy_from_slice(soc_id.to_le_bytes().as_ref());
+        c.soc_id = parse_hex_u128_field(soc_id, "'soc_id'")?;
     }
 
     if let Some(permissions_mask) = sec.get("permissions_mask") {
         let permissions_mask = permissions_mask.as_str().ok_or(AdacError::Encoding(
             "Value for 'permissions_mask' is not String".to_string(),
         ))?;
-        let permissions_mask = if let Some(hex) = permissions_mask.strip_prefix("0x") {
-            hex::decode(hex).map_err(|_| {
-                AdacError::Encoding(
-                    "Value for 'permissions_mask' is not properly hex encoded".to_string(),
-                )
-            })?
-        } else {
-            return Err(AdacError::Encoding(
-                "Value for 'permissions_mask' does not start with '0x'".to_string(),
-            ));
-        };
-        if permissions_mask.len() != 16 {
-            return Err(AdacError::Encoding(
-                "Length for 'permissions_mask' is invalid".to_string(),
-            ));
-        }
-        let permissions_mask = u128::from_be_bytes(permissions_mask.as_slice().try_into().unwrap());
-        c.permissions_mask
-            .copy_from_slice(permissions_mask.to_le_bytes().as_ref());
+        c.permissions_mask = parse_hex_u128_field(permissions_mask, "'permissions_mask'")?;
     }
 
     if let Some(extensions) = sec.get("extensions") {
         let extensions = extensions.as_str().ok_or(AdacError::Encoding(
             "Value for 'extensions' is not String".to_string(),
         ))?;
-        c.extensions = if !extensions.is_empty() {
-            if let Some(hex) = extensions.strip_prefix("0x") {
-                hex::decode(hex).map_err(|_| {
-                    AdacError::Encoding(
-                        "Value for 'extensions' is not properly hex encoded".to_string(),
-                    )
-                })?
-            } else {
-                return Err(AdacError::Encoding(
-                    "Value for 'extensions' does not start with '0x'".to_string(),
-                ));
-            }
-        } else {
-            vec![]
-        };
+        c.extensions = parse_base16_bytes_field(extensions, "'extensions'")?;
     }
 
     Ok(c)
@@ -516,7 +426,7 @@ pub fn parse_adac_token_configuration(
             "Value for default 'requested_permissions' is not String".to_string(),
         ))?;
     let requested_permissions =
-        parse_permissions_field(requested_permissions, "default 'requested_permissions'")?;
+        parse_hex_u128_field(requested_permissions, "default 'requested_permissions'")?;
 
     let extensions = parse_optional_extensions(defaults, "default 'extensions'")?;
 
@@ -580,7 +490,7 @@ pub fn parse_adac_token_configuration(
             "Value for 'requested_permissions' is not String".to_string(),
         ))?;
         c.requested_permissions =
-            parse_permissions_field(requested_permissions, "'requested_permissions'")?;
+            parse_hex_u128_field(requested_permissions, "'requested_permissions'")?;
     }
 
     if sec.get("extensions").is_some() {
@@ -590,26 +500,48 @@ pub fn parse_adac_token_configuration(
     Ok(c)
 }
 
-fn parse_permissions_field(value: &str, field: &str) -> Result<[u8; 16], AdacError> {
-    let permissions = if let Some(hex) = value.strip_prefix("0x") {
-        hex::decode(hex).map_err(|_| {
-            AdacError::Encoding(format!("Value for {} is not properly hex encoded", field))
-        })?
-    } else {
+fn parse_base16_bytes_field(value: &str, field: &str) -> Result<Vec<u8>, AdacError> {
+    if value.is_empty() {
+        return Ok(vec![]);
+    }
+    if value.starts_with("0x") || value.starts_with("0X") {
         return Err(AdacError::Encoding(format!(
-            "Value for {} does not start with '0x'",
+            "Value for {} must not start with '0x'",
+            field
+        )));
+    }
+
+    hex::decode(value).map_err(|_| {
+        AdacError::Encoding(format!(
+            "Value for {} is not properly base16 encoded",
+            field
+        ))
+    })
+}
+
+fn parse_hex_u128_field(value: &str, field: &str) -> Result<[u8; 16], AdacError> {
+    let Some(value) = value.strip_prefix("0x") else {
+        return Err(AdacError::Encoding(format!(
+            "Value for {} must start with '0x'",
             field
         )));
     };
-    if permissions.len() != 16 {
+
+    let bytes = hex::decode(value).map_err(|_| {
+        AdacError::Encoding(format!(
+            "Value for {} is not properly hexadecimal encoded",
+            field
+        ))
+    })?;
+    if bytes.len() != 16 {
         return Err(AdacError::Encoding(format!(
             "Length for {} is invalid",
             field
         )));
     }
 
-    let permissions = u128::from_be_bytes(permissions.as_slice().try_into().unwrap());
-    Ok(permissions.to_le_bytes())
+    let value = u128::from_be_bytes(bytes.as_slice().try_into().unwrap());
+    Ok(value.to_le_bytes())
 }
 
 fn parse_optional_extensions(table: &Value, field: &str) -> Result<Vec<u8>, AdacError> {
@@ -620,20 +552,7 @@ fn parse_optional_extensions(table: &Value, field: &str) -> Result<Vec<u8>, Adac
         "Value for {} is not String",
         field
     )))?;
-    if extensions.is_empty() {
-        return Ok(vec![]);
-    }
-
-    let Some(hex) = extensions.strip_prefix("0x") else {
-        return Err(AdacError::Encoding(format!(
-            "Value for {} does not start with '0x'",
-            field
-        )));
-    };
-
-    hex::decode(hex).map_err(|_| {
-        AdacError::Encoding(format!("Value for {} is not properly hex encoded", field))
-    })
+    parse_base16_bytes_field(extensions, field)
 }
 
 #[cfg(test)]
@@ -665,7 +584,7 @@ usage = 1
 [extensions]
 soc_id = "0x00112233445566778899AABB00000000"
 permissions_mask = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
-extensions = "0x0102030405060708090a0b0c0d0e0f"
+extensions = "0102030405060708090a0b0c0d0e0f"
 "#;
         let c = parse_adac_configuration(config, None).unwrap();
         assert_eq!(c.format_version, AdacVersion { major: 1, minor: 0 });
@@ -720,7 +639,7 @@ requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
 [token]
 version_minor = 1
 requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
-extensions = "0x01020304"
+extensions = "01020304"
 "#;
 
         let c = parse_adac_token_configuration(config, None).unwrap();
@@ -770,6 +689,41 @@ requested_permissions = "0xAA"
             err,
             AdacError::Encoding(message)
                 if message == "Length for default 'requested_permissions' is invalid"
+        ));
+    }
+
+    #[test]
+    fn token_config_rejects_uppercase_integer_prefix() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 0
+requested_permissions = "0XAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+"#;
+
+        let err = parse_adac_token_configuration(config, None).unwrap_err();
+        assert!(matches!(
+            err,
+            AdacError::Encoding(message)
+                if message == "Value for default 'requested_permissions' must start with '0x'"
+        ));
+    }
+
+    #[test]
+    fn token_config_rejects_prefixed_extensions() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 0
+requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = "0x01020304"
+"#;
+
+        let err = parse_adac_token_configuration(config, None).unwrap_err();
+        assert!(matches!(
+            err,
+            AdacError::Encoding(message)
+                if message == "Value for default 'extensions' must not start with '0x'"
         ));
     }
 }

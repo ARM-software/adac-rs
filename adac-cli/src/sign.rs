@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-use crate::{CommandError, CommandOutput, config};
+use crate::{CommandError, CommandOutput, config, shared};
 use adac::CertificateHeader;
 use adac::certificate::AdacCertificate;
 use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
@@ -56,10 +56,7 @@ pub fn sign_command(
     })?;
 
     let mut crypto: Box<dyn AdacCryptoProvider> = if let Some(key_id) = key_id {
-        let key_id =
-            base16ct::lower::decode_vec(key_id).map_err(|_| CommandError::InvalidParameter {
-                parameter: "--key-id".to_string(),
-            })?;
+        let key_id = shared::decode_base16_parameter(key_id, "--key-id")?;
         let kt = public_key.get_key_type();
 
         let module = if let Some(m) = module {
