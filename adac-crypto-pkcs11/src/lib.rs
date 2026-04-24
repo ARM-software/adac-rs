@@ -1,11 +1,10 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 use adac::traits::*;
 use adac::{AdacError, KeyOptions};
 use adac_cryptoki::{private, public};
 use cryptoki::{object::ObjectHandle, session::Session};
-use std::env;
 
 pub struct Pkcs11Provider {
     // pkcs11: Pkcs11,
@@ -17,38 +16,21 @@ pub struct Pkcs11Provider {
 unsafe impl Send for Pkcs11Provider {}
 unsafe impl Sync for Pkcs11Provider {}
 
-impl Default for Pkcs11Provider {
-    fn default() -> Self {
-        let pin = "1234".to_string();
-        let module = if cfg!(target_os = "macos") {
-            "/opt/homebrew/lib/softhsm/libsofthsm2.so".to_string()
-        } else if cfg!(target_os = "linux") && cfg!(target_arch = "aarch64") {
-            "/usr/lib/aarch64-linux-gnu/softhsm/libsofthsm2.so".to_string()
-        } else if cfg!(target_os = "linux") && cfg!(target_arch = "x86_64") {
-            "/usr/lib/x86_64-linux-gnu/softhsm/libsofthsm2.so".to_string()
-        } else {
-            "".to_string()
-        };
-
-        Self::new(
-            env::var("PKCS11_MODULE").unwrap_or(module),
-            env::var("PKCS11_PIN").unwrap_or(pin),
-            env::var("PKCS11_SLOT").ok(),
-        )
-    }
-}
-
 impl Pkcs11Provider {
-    pub fn new(module: String, pin: String, token_label: Option<String>) -> Self {
+    pub fn new(
+        module: String,
+        pin: String,
+        token_label: Option<String>,
+    ) -> Result<Self, AdacError> {
         let (_pkcs11, _slot, session) =
-            adac_cryptoki::pkcs11_create_session(module, pin, token_label);
+            adac_cryptoki::pkcs11_create_session(module, pin, token_label)?;
 
-        Self {
+        Ok(Self {
             // pkcs11,
             // slot,
             session,
             current_key: None,
-        }
+        })
     }
 
     pub fn import_key(

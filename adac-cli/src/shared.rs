@@ -3,6 +3,7 @@
 
 use crate::CommandError;
 use adac::KeyOptions;
+use adac_crypto_pkcs11::Pkcs11Provider;
 
 pub(crate) fn decode_base16_parameter(
     value: &str,
@@ -53,6 +54,16 @@ pub(crate) fn decode_hex_integer_parameter_with_length(
         });
     }
     Ok(value)
+}
+
+pub(crate) fn create_pkcs11_provider(
+    module: String,
+    pin: String,
+    slot: Option<String>,
+) -> Result<Pkcs11Provider, CommandError> {
+    Pkcs11Provider::new(module, pin, slot).map_err(|e| CommandError::AdacError {
+        source: anyhow::anyhow!("Error creating PKCS#11 session: {:?}", e),
+    })
 }
 
 pub fn parse_cli_key_type(value: &str) -> Result<KeyOptions, CommandError> {

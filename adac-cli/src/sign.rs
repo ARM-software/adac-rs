@@ -6,7 +6,6 @@ use adac::CertificateHeader;
 use adac::certificate::AdacCertificate;
 use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
 use adac_crypto::utils::{load_certificates, load_key, load_public_key, save_certificates};
-use adac_crypto_pkcs11::Pkcs11Provider;
 use serde::Serialize;
 use std::fs;
 use std::io::Write;
@@ -94,7 +93,7 @@ pub fn sign_command(
             });
         };
 
-        let mut crypto = Pkcs11Provider::new(module, pin, slot);
+        let mut crypto = shared::create_pkcs11_provider(module, pin, slot)?;
         crypto
             .load_key(kt, AdacKeyFormat::KeyId, key_id.as_slice())
             .map_err(|e| CommandError::AdacError {
