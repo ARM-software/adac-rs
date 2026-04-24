@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 use adac::{AdacError, KeyOptions, KeyOptions::*, traits::*};
@@ -77,38 +77,22 @@ impl AdacCryptoProvider for AwsLcCryptoProvider {
         data: &[u8],
         signature: &[u8],
     ) -> Result<(), AdacError> {
+        let signature = adac::validate_signature_padding(key_type, signature)?;
         match key_type {
-            EcdsaP256Sha256 => ecdsa_verify(
-                &ECDSA_P256_SHA256_FIXED_SIGNING,
-                public_key,
-                data,
-                signature,
-            ),
-            EcdsaP384Sha384 => ecdsa_verify(
-                &ECDSA_P384_SHA384_FIXED_SIGNING,
-                public_key,
-                data,
-                signature,
-            ),
-            EcdsaP521Sha512 => ecdsa_verify(
-                &ECDSA_P521_SHA512_FIXED_SIGNING,
+            EcdsaP256Sha256 | EcdsaP384Sha384 | EcdsaP521Sha512 => ecdsa_verify(
+                match key_type {
+                    EcdsaP256Sha256 => &ECDSA_P256_SHA256_FIXED_SIGNING,
+                    EcdsaP384Sha384 => &ECDSA_P384_SHA384_FIXED_SIGNING,
+                    EcdsaP521Sha512 => &ECDSA_P521_SHA512_FIXED_SIGNING,
+                    _ => unreachable!("match arm restricts key_type"),
+                },
                 public_key,
                 data,
                 signature,
             ),
             MlDsa44Sha256 => mldsa_verify(&ML_DSA_44, public_key, data, signature),
-            MlDsa65Sha384 => mldsa_verify(
-                &ML_DSA_65,
-                public_key,
-                data,
-                &signature[0..adac::MLDSA_65_SIGNATURE_UNPADDED],
-            ),
-            MlDsa87Sha512 => mldsa_verify(
-                &ML_DSA_87,
-                public_key,
-                data,
-                &signature[0..adac::MLDSA_87_SIGNATURE_UNPADDED],
-            ),
+            MlDsa65Sha384 => mldsa_verify(&ML_DSA_65, public_key, data, signature),
+            MlDsa87Sha512 => mldsa_verify(&ML_DSA_87, public_key, data, signature),
             _ => Err(AdacError::UnsupportedAlgorithm),
         }
     }

@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2025, Arm Limited. All rights reserved.
+// Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
 #[cfg(test)]
@@ -278,6 +278,36 @@ mod tests {
     }
 
     #[test]
+    fn ed448_chain_rejects_nonzero_signature_padding() {
+        let crypto = adac_crypto_rust::RustCryptoProvider::default();
+        let mut chain = load_certificates("resources/chains/chain.Ed448").unwrap();
+        let certificate = chain.pop().unwrap();
+        let mut bytes = certificate.to_bytes();
+        let signature_offset = certificate.get_tbs().len();
+        bytes[signature_offset + adac::ED448_SIGNATURE_SIZE_UNPADDED] ^= 0x01;
+        let certificate = AdacCertificate::from_bytes(bytes).unwrap();
+
+        assert!(certificate
+            .verify(chain.last().unwrap().get_public_key(), &crypto)
+            .is_err());
+    }
+
+    #[test]
+    fn ed448_chain_rejects_nonzero_public_key_padding() {
+        let mut chain = load_certificates("resources/chains/chain.Ed448").unwrap();
+        let certificate = chain.pop().unwrap();
+        let mut bytes = certificate.to_bytes();
+        let public_key_offset =
+            std::mem::size_of::<adac::CertificateHeader>() + adac::ED448_PUBLIC_KEY_SIZE_UNPADDED;
+        bytes[public_key_offset] ^= 0x01;
+
+        assert!(matches!(
+            AdacCertificate::from_bytes(bytes),
+            Err(adac::AdacError::Encoding(message)) if message == "Invalid public key padding"
+        ));
+    }
+
+    #[test]
     fn ml_dsa_44_chain_sig() {
         run_test_with(&TestSettings::default(), || {
             rust_crypto_chain_sig_test(
@@ -327,6 +357,23 @@ mod tests {
                 "resources/roots/root.MlDsa65",
             )
         })
+    }
+
+    #[test]
+    fn ml_dsa_65_chain_rejects_nonzero_signature_padding() {
+        run_test_with(&TestSettings::default(), || {
+            let crypto = adac_crypto_rust::RustCryptoProvider::default();
+            let mut chain = load_certificates("resources/chains/chain.MlDsa65").unwrap();
+            let certificate = chain.pop().unwrap();
+            let mut bytes = certificate.to_bytes();
+            let signature_offset = certificate.get_tbs().len();
+            bytes[signature_offset + adac::MLDSA_65_SIGNATURE_UNPADDED] ^= 0x01;
+            let certificate = AdacCertificate::from_bytes(bytes).unwrap();
+
+            assert!(certificate
+                .verify(chain.last().unwrap().get_public_key(), &crypto)
+                .is_err());
+        });
     }
 
     #[test]

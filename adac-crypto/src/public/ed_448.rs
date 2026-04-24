@@ -7,9 +7,22 @@ use der::{Decode, SliceReader};
 use ed448::pkcs8::DecodePrivateKey;
 use spki::{DecodePublicKey, EncodePublicKey};
 
+fn padded_adac_public_key(public_key: &[u8]) -> Result<Vec<u8>, AdacError> {
+    if public_key.len() != adac::ED448_PUBLIC_KEY_SIZE_UNPADDED {
+        return Err(AdacError::InvalidLength);
+    }
+
+    let mut adac = public_key.to_vec();
+    adac.extend_from_slice(
+        &[0u8; adac::ED448_PUBLIC_KEY_SIZE - adac::ED448_PUBLIC_KEY_SIZE_UNPADDED],
+    );
+    Ok(adac)
+}
+
 pub fn from_adac(adac: &[u8]) -> Result<AdacPublicKey, AdacError> {
-    let mut raw = [0u8; ed448::COMPONENT_SIZE];
-    raw.copy_from_slice(&adac[..ed448::COMPONENT_SIZE]);
+    let adac_public_key = adac::validate_public_key_padding(Ed448Shake256, adac)?;
+    let mut raw = [0u8; adac::ED448_PUBLIC_KEY_SIZE_UNPADDED];
+    raw.copy_from_slice(adac_public_key);
     let pub_key = ed448_goldilocks_plus::PublicKeyBytes(raw);
     let spki = pub_key
         .to_public_key_der()
@@ -80,12 +93,51 @@ pub fn get_adac_from_spki(public_key: &Vec<u8>) -> Result<Vec<u8>, AdacError> {
         .map_err(|e| AdacError::Encoding(format!("Error decoding EdDSA key from SPKI: {}", e)))?
         .to_bytes()
         .to_vec();
-    Ok(k)
+    padded_adac_public_key(&k)
 }
 
 pub fn get_spki_from_ec_point(point: &[u8]) -> Result<Vec<u8>, AdacError> {
-    let p: [u8; 57] = point
+    let p: [u8; adac::ED448_PUBLIC_KEY_SIZE_UNPADDED] = point
         .try_into()
         .map_err(|_| AdacError::InconsistentCrypto)?;
-    Ok(from_adac(p.as_slice())?.get_spki().to_vec())
+    let adac = padded_adac_public_key(p.as_slice())?;
+    Ok(from_adac(adac.as_slice())?.get_spki().to_vec())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    fn fixture_key_path(name: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../adac-tests/resources/keys")
+            .join(name)
+    }
+
+    #[test]
+    fn get_adac_from_spki_returns_canonical_padded_key() {
+        let (_, private_key) = crate::utils::load_key(fixture_key_path("Ed448Key-0.pk8")).unwrap();
+        let spki = spki_from_pkcs8(&private_key).unwrap();
+
+        let public_key = get_adac_from_spki(&spki).unwrap();
+
+        assert_eq!(public_key.len(), adac::ED448_PUBLIC_KEY_SIZE);
+        assert_eq!(
+            &public_key[adac::ED448_PUBLIC_KEY_SIZE_UNPADDED..],
+            &[0u8; adac::ED448_PUBLIC_KEY_SIZE - adac::ED448_PUBLIC_KEY_SIZE_UNPADDED]
+        );
+    }
+
+    #[test]
+    fn from_adac_rejects_nonzero_padding() {
+        let (_, private_key) = crate::utils::load_key(fixture_key_path("Ed448Key-0.pk8")).unwrap();
+        let mut public_key = adac_from_pkcs8(&private_key).unwrap();
+        public_key[adac::ED448_PUBLIC_KEY_SIZE_UNPADDED] = 1;
+
+        assert!(matches!(
+            from_adac(&public_key),
+            Err(AdacError::Encoding(message)) if message == "Invalid public key padding"
+        ));
+    }
 }

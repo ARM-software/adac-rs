@@ -8,10 +8,8 @@ pub mod ml_dsa;
 pub mod rsa;
 pub mod sm;
 
-use adac::{
-    AdacError, KeyOptions, KeyOptions::*, ED25519_PUBLIC_KEY_SIZE, ED448_PUBLIC_KEY_SIZE_UNPADDED,
-};
-use der::{asn1::BitString, oid::AssociatedOid, Encode};
+use adac::{AdacError, ED25519_PUBLIC_KEY_SIZE, KeyOptions, KeyOptions::*};
+use der::{Encode, asn1::BitString, oid::AssociatedOid};
 use spki::{ObjectIdentifier, SubjectPublicKeyInfo};
 
 #[derive(Clone, Debug)]
@@ -124,15 +122,18 @@ pub fn get_ec_params_oid_der(key_type: KeyOptions) -> Result<Vec<u8>, AdacError>
     }
 }
 
-pub fn get_sec1_bytes_from_adac(key_type: KeyOptions, public_key: &[u8]) -> Vec<u8> {
+pub fn get_sec1_bytes_from_adac(
+    key_type: KeyOptions,
+    public_key: &[u8],
+) -> Result<Vec<u8>, AdacError> {
     if key_type == Ed448Shake256 {
-        public_key[0..ED448_PUBLIC_KEY_SIZE_UNPADDED].to_vec()
+        Ok(adac::validate_public_key_padding(key_type, public_key)?.to_vec())
     } else if key_type == Ed25519Sha512 {
-        public_key[0..ED25519_PUBLIC_KEY_SIZE].to_vec()
+        Ok(public_key[0..ED25519_PUBLIC_KEY_SIZE].to_vec())
     } else {
         let mut pubkey = vec![0x04u8];
         pubkey.extend_from_slice(public_key);
-        pubkey
+        Ok(pubkey)
     }
 }
 
@@ -147,7 +148,7 @@ pub fn get_sec1_octet_string_from_adac(
     //         .to_der()
     //         .map_err(|e| AdacError::Encoding(e.to_string())),
     // }
-    der::asn1::OctetString::new(get_sec1_bytes_from_adac(key_type, public_key))
+    der::asn1::OctetString::new(get_sec1_bytes_from_adac(key_type, public_key)?)
         .map_err(|e| AdacError::Encoding(e.to_string()))?
         .to_der()
         .map_err(|e| AdacError::Encoding(e.to_string()))

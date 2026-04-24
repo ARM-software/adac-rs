@@ -62,7 +62,7 @@ pub fn verify(
                 &Mechanism::Eddsa(params),
                 handle,
                 hash.as_slice(),
-                &signature[0..adac::ED448_SIGNATURE_SIZE_UNPADDED],
+                adac::validate_signature_padding(key_type, signature)?,
             )
         }
         _ => return Err(AdacError::UnsupportedAlgorithm),

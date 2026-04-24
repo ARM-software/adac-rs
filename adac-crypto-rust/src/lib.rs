@@ -56,6 +56,8 @@ impl AdacCryptoProvider for RustCryptoProvider {
         data: &[u8],
         signature: &[u8],
     ) -> Result<(), AdacError> {
+        let public_key = adac::validate_public_key_padding(key_type, public_key)?;
+        let signature = adac::validate_signature_padding(key_type, signature)?;
         match key_type {
             EcdsaP256Sha256 => {
                 let mut pubkey = vec![0x04u8];
@@ -118,8 +120,8 @@ impl AdacCryptoProvider for RustCryptoProvider {
                     .map_err(|e| AdacError::Encoding(format!("Public key format: {}", e)))?;
                 let vk = ed448_goldilocks_plus::VerifyingKey::from_bytes(public_key_bytes)
                     .map_err(|e| AdacError::Encoding(format!("Decoding public key: {}", e)))?;
-                let signature_bytes = &signature[0..ed448_goldilocks_plus::SIGNATURE_LENGTH];
-                let sig = ed448_goldilocks_plus::Signature::try_from(signature_bytes)
+
+                let sig = ed448_goldilocks_plus::Signature::try_from(signature)
                     .map_err(|e| AdacError::Encoding(format!("Decoding signature: {}", e)))?;
                 let prehash = Shake256::default().chain(data);
                 vk.verify_prehashed::<PreHasherXof<Shake256>>(&sig, None, prehash.into())
@@ -145,10 +147,6 @@ impl AdacCryptoProvider for RustCryptoProvider {
                     .map_err(|e| AdacError::Encoding(format!("Decoding public key: {}", e)))?;
                 let vk = ml_dsa::VerifyingKey::<MlDsa65>::decode(&vk_bytes);
 
-                let (signature, pad) = signature.split_at(adac::MLDSA_65_SIGNATURE_UNPADDED);
-                if pad != vec![0u8; 3] {
-                    return Err(AdacError::Encoding("Invalid Padding".to_string()));
-                }
                 let sig_bytes = ml_dsa::EncodedSignature::<MlDsa65>::try_from(signature)
                     .map_err(|e| AdacError::Encoding(format!("Decoding signature: {}", e)))?;
                 let sig = ml_dsa::Signature::<MlDsa65>::decode(&sig_bytes)
@@ -162,10 +160,6 @@ impl AdacCryptoProvider for RustCryptoProvider {
                     .map_err(|e| AdacError::Encoding(format!("Decoding public key: {}", e)))?;
                 let vk = ml_dsa::VerifyingKey::<MlDsa87>::decode(&vk_bytes);
 
-                let (signature, pad) = signature.split_at(adac::MLDSA_87_SIGNATURE_UNPADDED);
-                if pad != vec![0u8; 1] {
-                    return Err(AdacError::Encoding("Invalid Padding".to_string()));
-                }
                 let sig_bytes = ml_dsa::EncodedSignature::<MlDsa87>::try_from(signature)
                     .map_err(|e| AdacError::Encoding(format!("Decoding signature: {}", e)))?;
                 let sig = ml_dsa::Signature::<MlDsa87>::decode(&sig_bytes)
