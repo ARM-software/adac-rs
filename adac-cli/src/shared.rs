@@ -3,6 +3,8 @@
 
 use crate::CommandError;
 use adac::KeyOptions;
+use adac::certificate::AdacCertificate;
+use adac::token::AdacToken;
 use adac_crypto_pkcs11::Pkcs11Provider;
 
 pub(crate) fn decode_base16_parameter(
@@ -64,6 +66,49 @@ pub(crate) fn create_pkcs11_provider(
     Pkcs11Provider::new(module, pin, slot).map_err(|e| CommandError::AdacError {
         source: anyhow::anyhow!("Error creating PKCS#11 session: {:?}", e),
     })
+}
+
+pub(crate) fn verify_certificate_signed_by_issuer(
+    issuer_chain: &[AdacCertificate],
+    certificate: &AdacCertificate,
+) -> Result<(), CommandError> {
+    let Some(issuer) = issuer_chain.last() else {
+        return Err(CommandError::AdacError {
+            source: anyhow::anyhow!("Issuer certificate chain is empty."),
+        });
+    };
+
+    let crypto = adac_crypto_rust::RustCryptoProvider::default();
+    certificate
+        .verify(issuer.get_public_key(), &crypto)
+        .map_err(|e| CommandError::AdacError {
+            source: anyhow::anyhow!(
+                "New certificate does not verify against issuer chain: {:?}",
+                e
+            ),
+        })
+}
+
+pub(crate) fn verify_token_signed_by_last_certificate(
+    chain: &[AdacCertificate],
+    token: &AdacToken,
+    challenge: &[u8],
+) -> Result<(), CommandError> {
+    let Some(signer) = chain.last() else {
+        return Err(CommandError::AdacError {
+            source: anyhow::anyhow!("Certificate chain is empty."),
+        });
+    };
+
+    let crypto = adac_crypto_rust::RustCryptoProvider::default();
+    token
+        .verify(signer.get_public_key(), challenge, &crypto)
+        .map_err(|e| CommandError::AdacError {
+            source: anyhow::anyhow!(
+                "Token does not verify against the last certificate in the chain: {:?}",
+                e
+            ),
+        })
 }
 
 pub fn parse_cli_key_type(value: &str) -> Result<KeyOptions, CommandError> {

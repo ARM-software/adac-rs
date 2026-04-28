@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-use crate::{CommandError, CommandOutput, config};
+use crate::{CommandError, CommandOutput, config, shared};
 use adac::certificate::{AdacCertificate, adac_sizes_from_crypto};
 use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
 use adac::{CertificateHeader, KeyOptions};
@@ -325,6 +325,7 @@ pub fn certificate_merge_command(
         let mut c = load_certificates(path).map_err(|e| CommandError::AdacError {
             source: anyhow::anyhow!("Error loading certificate chain: {:?}", e),
         })?;
+        shared::verify_certificate_signed_by_issuer(c.as_slice(), &certificate)?;
         c.push(certificate);
         c
     } else {
@@ -354,6 +355,8 @@ pub fn certificate_merge_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sign::certificate_sign_command;
+    use crate::tests;
 
     #[test]
     fn prepare_crypto_provider_rejects_key_type_mismatch() {
@@ -388,5 +391,67 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, adac::AdacError::InvalidLength));
+    }
+
+    #[test]
+    fn certificate_merge_command_rejects_certificate_not_signed_by_issuer() {
+        let dir = tests::make_temp_dir("adac-cli-offline-tests");
+        let config_path = tests::write_cert_config(&dir);
+        let root_public =
+            tests::write_public_key_from_private(&dir, "EcdsaP384Key-0.pk8", "root.pub");
+        let leaf_public =
+            tests::write_public_key_from_private(&dir, "EcdsaP384Key-1.pk8", "leaf.pub");
+        let root_path = dir.join("root.crt");
+        let prepared_path = dir.join("prepared.crt");
+        let signature_path = dir.join("signature.der");
+
+        certificate_sign_command(
+            &config_path,
+            &None,
+            &Some(root_path.clone()),
+            &Some(tests::fixture_path("keys", "EcdsaP384Key-0.pk8")),
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &root_public,
+            &Some("root".to_string()),
+        )
+        .unwrap();
+
+        certificate_prepare_command(
+            &config_path,
+            &leaf_public,
+            &Some("intermediate".to_string()),
+            &Some(prepared_path.clone()),
+            &None,
+            &None,
+        )
+        .unwrap();
+
+        fs::write(
+            &signature_path,
+            [0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01],
+        )
+        .unwrap();
+
+        let err =
+            certificate_merge_command(&Some(root_path), &None, &prepared_path, &signature_path)
+                .unwrap_err();
+
+        match err {
+            CommandError::AdacError { source } => {
+                assert!(
+                    source
+                        .to_string()
+                        .contains("does not verify against issuer chain")
+                );
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        let _ = fs::remove_dir_all(dir);
     }
 }

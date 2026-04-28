@@ -5,7 +5,7 @@ use crate::{CommandError, CommandOutput, config, shared};
 use adac::token::{self, AdacToken};
 use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
 use adac::{AdacError, KeyOptions, TokenHeader};
-use adac_crypto::utils::{convert_signature, load_key};
+use adac_crypto::utils::{convert_signature, load_certificates, load_key};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde::Serialize;
@@ -33,6 +33,7 @@ pub fn token_sign_command(
     challenge: &str,
     config: &Option<PathBuf>,
     output: &Option<PathBuf>,
+    chain: &Option<PathBuf>,
     private_key: &Option<PathBuf>,
     module: &Option<String>,
     slot: &Option<String>,
@@ -105,6 +106,8 @@ pub fn token_sign_command(
     .map_err(|e| CommandError::AdacError {
         source: anyhow::anyhow!("Error signing token: {:?}", e),
     })?;
+
+    verify_token_if_chain_is_provided(chain, &token, challenge.as_slice())?;
 
     if let Some(path) = output {
         let mut file = fs::File::create(path).map_err(|e| CommandError::FileWrite {
@@ -246,6 +249,8 @@ pub fn token_merge_command(
     input: &PathBuf,
     signature: &PathBuf,
     output: &Option<PathBuf>,
+    challenge: &Option<String>,
+    chain: &Option<PathBuf>,
 ) -> anyhow::Result<CommandOutput, CommandError> {
     let token = load_token(input).map_err(|e| CommandError::AdacError {
         source: anyhow::anyhow!("Error loading token: {:?}", e),
@@ -270,12 +275,36 @@ pub fn token_merge_command(
         source: anyhow::anyhow!("Error rebuilding token: {:?}", e),
     })?;
 
+    if chain.is_some() {
+        let Some(challenge) = challenge else {
+            return Err(CommandError::InvalidParameter {
+                parameter: "--challenge".to_string(),
+            });
+        };
+        let challenge = decode_challenge_parameter(challenge)?;
+        verify_token_if_chain_is_provided(chain, &token, challenge.as_slice())?;
+    }
+
     write_output(output, token.as_slice())?;
 
     Ok(CommandOutput::TokenOfflineMerge(TokenMergeReport {
         token: BASE64_STANDARD.encode(token.as_slice()),
         path: output.clone(),
     }))
+}
+
+fn verify_token_if_chain_is_provided(
+    chain: &Option<PathBuf>,
+    token: &AdacToken,
+    challenge: &[u8],
+) -> Result<(), CommandError> {
+    if let Some(path) = chain {
+        let chain = load_certificates(path).map_err(|e| CommandError::AdacError {
+            source: anyhow::anyhow!("Error loading certificate chain: {:?}", e),
+        })?;
+        shared::verify_token_signed_by_last_certificate(chain.as_slice(), token, challenge)?;
+    }
+    Ok(())
 }
 
 fn build_token_header(config: &config::AdacTokenConfig, key_type: KeyOptions) -> TokenHeader {
@@ -588,6 +617,7 @@ extensions = "01020304"
             &challenge,
             &None,
             &None,
+            &None,
             &Some(private.clone()),
             &None,
             &None,
@@ -635,6 +665,7 @@ extensions = "01020304"
         let output = token_sign_command(
             &challenge,
             &Some(config_path),
+            &None,
             &None,
             &Some(private.clone()),
             &None,
@@ -685,6 +716,7 @@ extensions = "01020304"
             &challenge,
             &Some(config_path),
             &None,
+            &None,
             &Some(private),
             &None,
             &None,
@@ -711,6 +743,44 @@ extensions = "01020304"
     }
 
     #[test]
+    fn token_sign_command_rejects_token_not_signed_by_last_certificate() {
+        let dir = tests::make_temp_dir("adac-cli-token-tests");
+        let private = fixture_key_path("EcdsaP384Key-1.pk8");
+        let chain = tests::fixture_path("roots", "root.EcdsaP384");
+
+        let err = token_sign_command(
+            TOKEN_CHALLENGE,
+            &None,
+            &None,
+            &Some(chain),
+            &Some(private),
+            &None,
+            &None,
+            &Some("0x0000000003FFFFFFFFFFFFFF00000000".to_string()),
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &Some("token".to_string()),
+        )
+        .unwrap_err();
+
+        match err {
+            CommandError::AdacError { source } => {
+                assert!(
+                    source.to_string().contains(
+                        "Token does not verify against the last certificate in the chain"
+                    )
+                );
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn token_offline_prepare_and_merge_round_trip() {
         let dir = tests::make_temp_dir("adac-cli-token-tests");
         let config_path = write_config(&dir);
@@ -722,6 +792,7 @@ extensions = "01020304"
         let signature_path = dir.join("signature.bin");
         let challenge = TOKEN_CHALLENGE.to_string();
         let key_type = "EcdsaP384Sha384".to_string();
+        let chain = tests::fixture_path("roots", "root.EcdsaP384");
 
         let output = token_prepare_command(
             &Some(config_path),
@@ -762,9 +833,23 @@ extensions = "01020304"
             .unwrap();
         fs::write(&signature_path, signature).unwrap();
 
-        let output =
-            token_merge_command(&prepared_path, &signature_path, &Some(merged_path.clone()))
-                .unwrap();
+        let output = token_merge_command(
+            &prepared_path,
+            &signature_path,
+            &Some(merged_path.clone()),
+            &Some(challenge.clone()),
+            &Some(chain.clone()),
+        )
+        .unwrap();
+
+        let missing_challenge =
+            token_merge_command(&prepared_path, &signature_path, &None, &None, &Some(chain))
+                .unwrap_err();
+        assert!(matches!(
+            missing_challenge,
+            CommandError::InvalidParameter { parameter } if parameter == "--challenge"
+        ));
+
         let CommandOutput::TokenOfflineMerge(report) = output else {
             panic!("unexpected command output");
         };
@@ -824,6 +909,7 @@ extensions = "01020304"
             &challenge,
             &Some(config_path),
             &None,
+            &None,
             &Some(private),
             &None,
             &None,
@@ -862,6 +948,7 @@ extensions = "01020304"
             TOKEN_CHALLENGE,
             &Some(config_path),
             &Some(output_path.clone()),
+            &None,
             &Some(private),
             &None,
             &None,
@@ -893,6 +980,7 @@ extensions = "01020304"
         let err = token_sign_command(
             "00112233",
             &Some(config_path),
+            &None,
             &None,
             &Some(private),
             &None,
@@ -927,6 +1015,7 @@ extensions = "01020304"
             &format!("0x{TOKEN_CHALLENGE}"),
             &Some(config_path),
             &None,
+            &None,
             &Some(private),
             &None,
             &None,
@@ -957,6 +1046,7 @@ extensions = "01020304"
 
         let err = token_sign_command(
             TOKEN_CHALLENGE,
+            &None,
             &None,
             &None,
             &Some(private),

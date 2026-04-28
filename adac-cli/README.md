@@ -332,6 +332,7 @@ Usage: adac-cli token-sign [OPTIONS] <CHALLENGE> [PERMISSIONS]
 | `-c, --config` | Token configuration file [(see here)](#token-configuration-file-format). | `--config token.toml` | none |
 | `-k, --key-id` | The identifier of the private key as base16 bytes without a `0x` prefix, when using PKCS#11. | `--key-id abcdef012345` | none |
 | `--key-type` | Key type to sign with when using `--key-id`. If provided with `--private-key`, it must match the private key. | `--key-type EcdsaP384Sha384` | inferred from private key |
+| `--chain` | Certificate chain whose last certificate is used to verify the generated token before writing it. | `--chain test/crt1.crt` | none |
 | `-o, --output` | Write the resulting token to this file. | `--output token.bin` | stdout |
 | `-p, --private-key` | A file containing the private key in PKCS#8 format, when not using PKCS#11. | `--private-key signer.pk8` | none |
 | `-s, --section` | Config file section to apply. | `--section token` | `[defaults]` |
@@ -345,6 +346,8 @@ See the [PKCS#11 options](#pkcs11-key-specifier-options) section for information
 If both `--config` and the positional `[PERMISSIONS]` argument are provided, the positional value overrides `requested_permissions` from the selected configuration section.
 
 When `--output` is omitted, the token is printed to stdout as base64. When `--output` is provided, the file contains the raw token bytes.
+
+When `--chain` is provided, the command verifies the generated token signature with the public key from the last certificate in that chain before writing the token. It does not validate the certificate chain itself. When `--chain` is omitted, no token signature validation is performed.
 
 Example command to sign a token using a local private key:
 ```
@@ -414,6 +417,8 @@ Usage: adac-cli token-offline-merge [OPTIONS] <INPUT> <SIGNATURE>
 
 | Flag | Description | Example | Default |
 |------|-------------|---------|---------|
+| `--chain` | Certificate chain whose last certificate is used to verify the merged token before writing it. | `--chain test/crt1.crt` | none |
+| `-c, --challenge` | Token challenge as a 32-byte base16 string without a `0x` prefix. Required when `--chain` is used. | `--challenge 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff` | none |
 | `-o, --output` | Write the resulting token to this file. | `--output token.bin` | stdout |
 
 Positional arguments:
@@ -421,6 +426,8 @@ Positional arguments:
 - `<SIGNATURE>`: Detached signature to merge into the token.
 
 When `--output` is omitted, the merged token is printed to stdout as base64. When `--output` is provided, the file contains the raw token bytes.
+
+When `--chain` is provided, the command verifies the merged token signature with the public key from the last certificate in that chain before writing the token. It does not validate the certificate chain itself. This validation also requires `--challenge`, because the challenge is part of the token signature input but is not stored in the token. When `--chain` is omitted, no token signature validation is performed.
 
 Example:
 ```
