@@ -35,7 +35,7 @@ cargo install --path adac-cli
 ```
 
 Most CLI subcommands operate on ADAC certificates or tokens. Add the
-appropriate flags (for example `display`, `sign`, `verify`, `token-sign`,
+appropriate flags (for example `display`, `certificate-sign`, `verify`, `token-sign`,
 `token-offline-prepare`, and `token-offline-merge`) as documented by the
 `--help` output.
 

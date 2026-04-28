@@ -113,7 +113,7 @@ impl AdacCryptoProvider for PrepareCryptoProvider {
     }
 }
 
-pub fn prepare_command(
+pub fn certificate_prepare_command(
     config: &PathBuf,
     request: &PathBuf,
     section: &Option<String>,
@@ -209,7 +209,7 @@ pub fn prepare_command(
     let crt_path = crt_path.clone();
     let tbs_path = tbs_path.clone();
     let hash_path = hash_path.clone();
-    Ok(CommandOutput::SignOfflinePrepare(PrepareReport {
+    Ok(CommandOutput::CertificateOfflinePrepare(PrepareReport {
         certificate,
         tbs,
         hash,
@@ -276,7 +276,7 @@ impl MergeCryptoProvider {
     }
 }
 
-pub fn merge_command(
+pub fn certificate_merge_command(
     issuer: &Option<PathBuf>,
     output: &Option<PathBuf>,
     input: &PathBuf,
@@ -345,7 +345,7 @@ pub fn merge_command(
             })?;
     }
     let path = output.clone();
-    Ok(CommandOutput::SignOfflineMerge(MergeReport {
+    Ok(CommandOutput::CertificateOfflineMerge(MergeReport {
         certificate,
         path,
     }))

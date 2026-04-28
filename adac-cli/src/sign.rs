@@ -13,12 +13,12 @@ use std::ops::DerefMut;
 use std::path::PathBuf;
 
 #[derive(Debug, Serialize)]
-pub struct SignatureReport {
+pub struct CertficateSignatureReport {
     pub certificate: String,
     pub path: Option<PathBuf>,
 }
 
-impl SignatureReport {
+impl CertficateSignatureReport {
     pub fn text_output(&self, out: &mut dyn Write) -> anyhow::Result<()> {
         if self.path.is_none() {
             writeln!(out, "{}", self.certificate)?;
@@ -27,7 +27,7 @@ impl SignatureReport {
     }
 }
 
-pub fn sign_command(
+pub fn certificate_sign_command(
     config: &PathBuf,
     issuer: &Option<PathBuf>,
     output: &Option<PathBuf>,
@@ -180,5 +180,8 @@ pub fn sign_command(
             })?;
     }
     let path = output.clone();
-    Ok(CommandOutput::Sign(SignatureReport { certificate, path }))
+    Ok(CommandOutput::CertificateSign(CertficateSignatureReport {
+        certificate,
+        path,
+    }))
 }

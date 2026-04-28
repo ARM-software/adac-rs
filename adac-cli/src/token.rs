@@ -217,7 +217,7 @@ pub fn token_prepare_command(
     write_output(tbs_path, crypto.tbs.as_slice())?;
     write_output(hash_path, crypto.hash.as_slice())?;
 
-    Ok(CommandOutput::TokenSignOfflinePrepare(TokenPrepareReport {
+    Ok(CommandOutput::TokenOfflinePrepare(TokenPrepareReport {
         token: BASE64_STANDARD.encode(token.as_slice()),
         tbs: BASE64_STANDARD.encode(crypto.tbs.as_slice()),
         hash: base16ct::lower::encode_string(crypto.hash.as_slice()),
@@ -272,7 +272,7 @@ pub fn token_merge_command(
 
     write_output(output, token.as_slice())?;
 
-    Ok(CommandOutput::TokenSignOfflineMerge(TokenMergeReport {
+    Ok(CommandOutput::TokenOfflineMerge(TokenMergeReport {
         token: BASE64_STANDARD.encode(token.as_slice()),
         path: output.clone(),
     }))
@@ -735,7 +735,7 @@ extensions = "01020304"
         )
         .unwrap();
 
-        let CommandOutput::TokenSignOfflinePrepare(report) = output else {
+        let CommandOutput::TokenOfflinePrepare(report) = output else {
             panic!("unexpected command output");
         };
         assert_eq!(report.token_path, Some(prepared_path.clone()));
@@ -765,7 +765,7 @@ extensions = "01020304"
         let output =
             token_merge_command(&prepared_path, &signature_path, &Some(merged_path.clone()))
                 .unwrap();
-        let CommandOutput::TokenSignOfflineMerge(report) = output else {
+        let CommandOutput::TokenOfflineMerge(report) = output else {
             panic!("unexpected command output");
         };
         assert_eq!(report.path, Some(merged_path.clone()));
@@ -801,7 +801,7 @@ extensions = "01020304"
         )
         .unwrap();
 
-        let CommandOutput::TokenSignOfflinePrepare(report) = output else {
+        let CommandOutput::TokenOfflinePrepare(report) = output else {
             panic!("unexpected command output");
         };
         let token = AdacToken::from_bytes(BASE64_STANDARD.decode(&report.token).unwrap()).unwrap();

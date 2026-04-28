@@ -16,9 +16,9 @@ The tool has a number of subcommands which perform specific actions on keys or c
 * `pop` - Extract the last certificate in a chain.
 * `push` - Add a certificate to a chain.
 * `rot-hash` - Extract the root of trust public key hash.
-* `sign` - Sign a certificate.
-* `offline-prepare` - Generate an unsigned certificate plus the payload that must be signed elsewhere.
-* `offline-merge` - Combine an offline signature with an unsigned certificate.
+* `certificate-sign` (alias: `certificate`) - Sign a certificate.
+* `certificate-offline-prepare` - Generate an unsigned certificate plus the payload that must be signed elsewhere.
+* `certificate-offline-merge` - Combine an offline signature with an unsigned certificate.
 * `token-sign` (alias: `token`) - Sign an authentication token.
 * `token-offline-prepare` - Generate an unsigned token plus the payload that must be signed elsewhere.
 * `token-offline-merge` - Combine an offline token signature with an unsigned token.
@@ -30,9 +30,9 @@ Subsequent sections describe common or recurring option groups and each subcomma
 
 Use the offline prepare and merge subcommands when the signing key is held in an offline system (for example, a high-security HSM) that cannot run `adac-cli` directly. This workflow separates certificate construction from signing:
 
-1. Run `offline-prepare` to build every certificate byte except the signature. The command emits the to-be-signed (TBS) payload and its hash so they can be moved into the offline environment.
+1. Run `certificate-offline-prepare` to build every certificate byte except the signature. The command emits the to-be-signed (TBS) payload and its hash so they can be moved into the offline environment.
 2. Sign the TBS payload using the protected private key. The offline signer should output a DER-encoded ECDSA signature matching the certificate key type.
-3. Run `offline-merge` with the unsigned certificate and detached signature to produce a fully signed certificate or certificate chain, optionally prepending an issuer chain at the same time.
+3. Run `certificate-offline-merge` with the unsigned certificate and detached signature to produce a fully signed certificate or certificate chain, optionally prepending an issuer chain at the same time.
 
 Offline signing supports only a subset of certificate signature algorithms. The offline signer must produce a DER-encoded signature that matches the certificate key type. For details of the DER format see the normative definition in [ITU-T Recommendation X.690](https://www.itu.int/rec/T-REC-X.690-202102-I/en).
 
@@ -43,9 +43,9 @@ adac-cli -h
 adac-cli --help
 adac-cli help
 ```
-Each subcommand also has more detailed help. For example, the below will provide more information on the `sign` options:
+Each subcommand also has more detailed help. For example, the below will provide more information on the `certificate-sign` options:
 ```
-adac-cli sign --help
+adac-cli certificate-sign --help
 ```
 
 ### Global options
@@ -216,12 +216,12 @@ Example command to show the RoT hash from crt1.crt:
 adac-cli rot-hash test/crt1.crt --hash sha384
 ```
 
-### sign: Sign a certificate.
+### certificate-sign: Sign a certificate.
 
 Use this subcommand to create and sign a new certificate. This can be either a root certificate or one derived from an issuer certificate, creating a chain.
 
 ```
-Usage: adac-cli sign [OPTIONS] <CONFIG> <PUBLIC_KEY>
+Usage: adac-cli certificate-sign [OPTIONS] <CONFIG> <PUBLIC_KEY>
 ```
 
 | Flag | Description | Example | Default |
@@ -242,27 +242,27 @@ Alternatively, the subcommand can use private keys from a [PKCS#8 format](https:
 
 Example commands to generate certificates:
 ```
-adac-cli sign test-config.toml EcdsaP384Key-2.pub \
+adac-cli certificate-sign test-config.toml EcdsaP384Key-2.pub \
     -p resources/keys/EcdsaP384Key-1.pk8 \
     -i inter.crt -s crt1 -o crt1.crt
 
 export PKCS11_MODULE=/usr/bin/path/to/libprovider.so
 export PKCS11_SLOT=debug_keys
 export PKCS11_PIN=123456
-adac-cli sign newchip/adac_config.toml secdbg_Alice.pub -s secdbg_team \
+adac-cli certificate-sign newchip/adac_config.toml secdbg_Alice.pub -s secdbg_team \
     -i top_soc_debug.crt \
     -o secdbg_alice.crt \
     -k 1234bcc276f40f4153659863564abba
-adac-cli sign newchip/adac_config.toml dbg_Bob.pub -s nonsecdbg_team \
+adac-cli certificate-sign newchip/adac_config.toml dbg_Bob.pub -s nonsecdbg_team \
     -i top_soc_debug.crt \
     -o dbg_bob.crt \
     -k 1234bcc276f40f4153659863564abba
 ```
 
-### offline-prepare: Stage an unsigned certificate
+### certificate-offline-prepare: Stage an unsigned certificate
 
 ```
-Usage: adac-cli offline-prepare [OPTIONS] <CONFIG> <PUBLIC_KEY>
+Usage: adac-cli certificate-offline-prepare [OPTIONS] <CONFIG> <PUBLIC_KEY>
 ```
 
 | Flag | Description | Example | Default |
@@ -273,7 +273,7 @@ Usage: adac-cli offline-prepare [OPTIONS] <CONFIG> <PUBLIC_KEY>
 | `--hash` | File to store the hash of the TBS payload (size depends on key type). | `--hash crt1.sha384` | stdout |
 
 Positional arguments:
-- `<CONFIG>`: Signing configuration file [(same format as `sign`)](#configuration-file-format).
+- `<CONFIG>`: Signing configuration file [(same format as `certificate-sign`)](#configuration-file-format).
 - `<PUBLIC_KEY>`: Public key (PEM) to incorporate into the certificate.
 
 When you do not specify output files, the command prints the following artifacts to stdout:
@@ -281,12 +281,12 @@ When you do not specify output files, the command prints the following artifacts
 * `TBS=<base64>` – the byte sequence that must be signed offline.
 * `Hash=<hex>` – the digest of the TBS payload (useful for audit logs or to validate the transfer).
 
-### offline-merge: Attach the offline signature
+### certificate-offline-merge: Attach the offline signature
 
 Use this subcommand to combine an unsigned certificate with an offline signature and produce a complete certificate chain.
 
 ```
-Usage: adac-cli offline-merge [OPTIONS] <INPUT> <SIGNATURE>
+Usage: adac-cli certificate-offline-merge [OPTIONS] <INPUT> <SIGNATURE>
 ```
 
 | Flag | Description | Example | Default |
@@ -295,13 +295,13 @@ Usage: adac-cli offline-merge [OPTIONS] <INPUT> <SIGNATURE>
 | `-o, --output` | Write the completed certificate chain to this file. | `--output crt1-final.crt` | stdout |
 
 Positional arguments:
-- `<INPUT>`: Unsigned certificate produced by `offline-prepare`.
+- `<INPUT>`: Unsigned certificate produced by `certificate-offline-prepare`.
 - `<SIGNATURE>`: The DER-encoded signature over the TBS payload, created offline.
 
 Example:
 ```
 # Prepare unsigned certificate and TBS
-adac-cli offline-prepare \
+adac-cli certificate-offline-prepare \
     test-config.toml \
     EcdsaP384Key-2.pub \
     -s crt1 \
@@ -312,7 +312,7 @@ adac-cli offline-prepare \
 # Sign crt1.tbs on the offline system and write a DER-encoded signature to crt1.sig
 
 # Merge the signature into the certificate and add to the chain
-adac-cli offline-merge \
+adac-cli certificate-offline-merge \
     --issuer inter.crt \
     unsigned.crt \
     crt1.sig \

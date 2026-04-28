@@ -23,14 +23,6 @@ use thiserror::Error;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, filter::LevelFilter, fmt, fmt::writer::BoxMakeWriter};
 
-use display::DisplayReport;
-use misc::{PopReport, PushReport, RotReport};
-use offline::{MergeReport, PrepareReport, merge_command, prepare_command};
-use pkcs11::Pkcs11GenerateReport;
-use sign::SignatureReport;
-use token::{TokenMergeReport, TokenPrepareReport, TokenSignatureReport};
-use verify::VerificationReport;
-
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum LogLevel {
     Error,
@@ -178,7 +170,8 @@ enum Commands {
         hash: Option<String>,
     },
     /// Sign a certificate.
-    Sign {
+    #[command(name = "certificate-sign", alias = "certificate")]
+    CertificateSign {
         /// Signing configuration file (TOML).
         #[arg(value_name = "CONFIG")]
         config: PathBuf,
@@ -217,8 +210,8 @@ enum Commands {
         section: Option<String>,
     },
     /// Prepare an offline certificate signature.
-    #[command(name = "sign-offline-prepare", alias = "offline-prepare")]
-    SignOfflinePrepare {
+    #[command(name = "certificate-offline-prepare")]
+    CertificateOfflinePrepare {
         /// Signing configuration file (TOML).
         #[arg(value_name = "CONFIG")]
         config: PathBuf,
@@ -239,15 +232,15 @@ enum Commands {
         hash: Option<PathBuf>,
     },
     /// Merge an offline signature.
-    #[command(name = "sign-offline-merge", alias = "offline-merge")]
-    SignOfflineMerge {
+    #[command(name = "certificate-offline-merge")]
+    CertificateOfflineMerge {
         /// Issuer certificate chain to prepend the signed certificate to.
         #[arg(short, long, value_name = "CHAIN")]
         issuer: Option<PathBuf>,
         /// Write the resulting certificate chain to this file.
         #[arg(short, long, value_name = "OUT")]
         output: Option<PathBuf>,
-        /// (Pre-)Certificate produced by offline-prepare.
+        /// (Pre-)Certificate produced by certificate-offline-prepare.
         #[arg(value_name = "INPUT")]
         input: PathBuf,
         /// Detached signature to merge into the certificate.
@@ -299,7 +292,7 @@ enum Commands {
     },
     /// Prepare an offline token signature.
     #[command(name = "token-offline-prepare")]
-    TokenSignOfflinePrepare {
+    TokenOfflinePrepare {
         /// Token challenge as 32 base16-encoded bytes.
         #[arg(value_name = "CHALLENGE")]
         challenge: String,
@@ -327,7 +320,7 @@ enum Commands {
     },
     /// Merge an offline token signature.
     #[command(name = "token-offline-merge")]
-    TokenSignOfflineMerge {
+    TokenOfflineMerge {
         /// (Pre-)Token produced by token-offline-prepare.
         #[arg(value_name = "INPUT")]
         input: PathBuf,
@@ -355,18 +348,18 @@ enum Commands {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum CommandOutput {
-    Display(DisplayReport),
-    Pkcs11Generate(Pkcs11GenerateReport),
-    Pop(PopReport),
-    Push(PushReport),
-    RotHash(RotReport),
-    Sign(SignatureReport),
-    SignOfflinePrepare(PrepareReport),
-    SignOfflineMerge(MergeReport),
-    TokenSign(TokenSignatureReport),
-    TokenSignOfflinePrepare(TokenPrepareReport),
-    TokenSignOfflineMerge(TokenMergeReport),
-    Verify(VerificationReport),
+    Display(display::DisplayReport),
+    Pkcs11Generate(pkcs11::Pkcs11GenerateReport),
+    Pop(misc::PopReport),
+    Push(misc::PushReport),
+    RotHash(misc::RotReport),
+    CertificateSign(sign::CertficateSignatureReport),
+    CertificateOfflinePrepare(offline::PrepareReport),
+    CertificateOfflineMerge(offline::MergeReport),
+    TokenSign(token::TokenSignatureReport),
+    TokenOfflinePrepare(token::TokenPrepareReport),
+    TokenOfflineMerge(token::TokenMergeReport),
+    Verify(verify::VerificationReport),
 }
 
 #[derive(Debug, Error)]
@@ -482,7 +475,7 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             output,
         } => misc::push_command(chain, input, output),
         Commands::RotHash { input, hash } => misc::rot_command(input, hash),
-        Commands::Sign {
+        Commands::CertificateSign {
             config,
             issuer,
             output,
@@ -495,7 +488,7 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             key_id,
             public_key,
             section,
-        } => sign::sign_command(
+        } => sign::certificate_sign_command(
             config,
             issuer,
             output,
@@ -509,20 +502,20 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             public_key,
             section,
         ),
-        Commands::SignOfflinePrepare {
+        Commands::CertificateOfflinePrepare {
             config,
             public_key,
             section,
             output,
             tbs,
             hash,
-        } => prepare_command(config, public_key, section, output, tbs, hash),
-        Commands::SignOfflineMerge {
+        } => offline::certificate_prepare_command(config, public_key, section, output, tbs, hash),
+        Commands::CertificateOfflineMerge {
             issuer,
             output,
             input,
             signature,
-        } => merge_command(issuer, output, input, signature),
+        } => offline::certificate_merge_command(issuer, output, input, signature),
         Commands::TokenSign {
             challenge,
             config,
@@ -552,7 +545,7 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             key_type,
             section,
         ),
-        Commands::TokenSignOfflinePrepare {
+        Commands::TokenOfflinePrepare {
             challenge,
             config,
             key_type,
@@ -571,7 +564,7 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             tbs,
             hash,
         ),
-        Commands::TokenSignOfflineMerge {
+        Commands::TokenOfflineMerge {
             input,
             signature,
             output,
@@ -603,22 +596,22 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
                 CommandOutput::RotHash(r) => {
                     r.text_output(&mut stdout)?;
                 }
-                CommandOutput::Sign(s) => {
+                CommandOutput::CertificateSign(s) => {
                     s.text_output(&mut stdout)?;
                 }
-                CommandOutput::SignOfflinePrepare(p) => {
+                CommandOutput::CertificateOfflinePrepare(p) => {
                     p.text_output(&mut stdout)?;
                 }
-                CommandOutput::SignOfflineMerge(m) => {
+                CommandOutput::CertificateOfflineMerge(m) => {
                     m.text_output(&mut stdout)?;
                 }
                 CommandOutput::TokenSign(s) => {
                     s.text_output(&mut stdout)?;
                 }
-                CommandOutput::TokenSignOfflinePrepare(p) => {
+                CommandOutput::TokenOfflinePrepare(p) => {
                     p.text_output(&mut stdout)?;
                 }
-                CommandOutput::TokenSignOfflineMerge(m) => {
+                CommandOutput::TokenOfflineMerge(m) => {
                     m.text_output(&mut stdout)?;
                 }
                 CommandOutput::Verify(v) => {
