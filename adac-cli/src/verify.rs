@@ -286,7 +286,7 @@ pub fn verify_command(
 mod tests {
     use super::*;
     use crate::config::parse_adac_token_configuration;
-    use crate::sign::sign_command;
+    use crate::sign::certificate_sign_command;
     use crate::tests;
     use crate::token::token_sign_command;
     use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
@@ -388,7 +388,7 @@ oem_constraint = 0x5678
         let root_path = dir.join("root.pem");
         let chain_path = dir.join(output_name);
 
-        sign_command(
+        certificate_sign_command(
             &config_path,
             &None,
             &Some(root_path.clone()),
@@ -404,7 +404,7 @@ oem_constraint = 0x5678
         )
         .unwrap();
 
-        sign_command(
+        certificate_sign_command(
             &config_path,
             &Some(root_path),
             &Some(chain_path.clone()),

@@ -64,26 +64,26 @@ jq -r '.pkcs11_generate.pem' "${TEST_DIR}/key1.json" > "${TEST_DIR}/key1.pub"
 KEY2_ID=$(jq -r '.pkcs11_generate.kid' "${TEST_DIR}/key2.json")
 jq -r '.pkcs11_generate.pem' "${TEST_DIR}/key2.json" > "${TEST_DIR}/key2.pub"
 
-"${ADAC_CLI}" sign "${TST_FILE}" "${TEST_DIR}/key0.pub" "${pkcs11_args[@]}" \
+"${ADAC_CLI}" certificate-sign "${TST_FILE}" "${TEST_DIR}/key0.pub" "${pkcs11_args[@]}" \
     -k "${KEY0_ID}" -s root -o "${TEST_DIR}/root.crt"
 
-"${ADAC_CLI}" sign "${TST_FILE}" "${TEST_DIR}/key1.pub" "${pkcs11_args[@]}" \
+"${ADAC_CLI}" certificate-sign "${TST_FILE}" "${TEST_DIR}/key1.pub" "${pkcs11_args[@]}" \
     -k "${KEY0_ID}" -s intermediate -i "${TEST_DIR}/root.crt" -o "${TEST_DIR}/inter.crt"
 
 ### Sign Test 1 certificate
 echo ""
-"${ADAC_CLI}" sign "${TST_FILE}" "${TEST_DIR}/key2.pub" "${pkcs11_args[@]}" \
+"${ADAC_CLI}" certificate-sign "${TST_FILE}" "${TEST_DIR}/key2.pub" "${pkcs11_args[@]}" \
     -k "${KEY1_ID}" -s crt1 -i "${TEST_DIR}/inter.crt" -o "${TEST_DIR}/crt1.crt"
 "${ADAC_CLI}" verify "${TEST_DIR}/crt1.crt"
 
 ### Sign Test 2 certificate
 echo ""
-"${ADAC_CLI}" sign "${TST_FILE}" "${TEST_DIR}/key2.pub" "${pkcs11_args[@]}" \
+"${ADAC_CLI}" certificate-sign "${TST_FILE}" "${TEST_DIR}/key2.pub" "${pkcs11_args[@]}" \
     -k "${KEY1_ID}" -s crt2 -i "${TEST_DIR}/inter.crt" -o "${TEST_DIR}/crt2.crt"
 "${ADAC_CLI}" verify "${TEST_DIR}/crt2.crt"
 
 ### Sign Test 3 certificate
 echo ""
-"${ADAC_CLI}" sign "${TST_FILE}" "${TEST_DIR}/key2.pub" "${pkcs11_args[@]}" \
+"${ADAC_CLI}" certificate-sign "${TST_FILE}" "${TEST_DIR}/key2.pub" "${pkcs11_args[@]}" \
     -k  "${KEY1_ID}" -s crt3 -i "${TEST_DIR}/inter.crt" -o "${TEST_DIR}/crt3.crt"
 "${ADAC_CLI}" verify "${TEST_DIR}/crt3.crt"
