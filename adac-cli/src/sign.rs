@@ -158,6 +158,7 @@ pub fn certificate_sign_command(
         let mut c = load_certificates(path).map_err(|e| CommandError::AdacError {
             source: anyhow::anyhow!("Error loading certificate chain: {:?}", e),
         })?;
+        shared::verify_certificate_signed_by_issuer(c.as_slice(), &certificate)?;
         c.push(certificate);
         c
     } else {
@@ -184,4 +185,66 @@ pub fn certificate_sign_command(
         certificate,
         path,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests;
+
+    #[test]
+    fn certificate_sign_command_rejects_certificate_not_signed_by_issuer() {
+        let dir = tests::make_temp_dir("adac-cli-sign-tests");
+        let config_path = tests::write_cert_config(&dir);
+        let root_public =
+            tests::write_public_key_from_private(&dir, "EcdsaP384Key-0.pk8", "root.pub");
+        let leaf_public =
+            tests::write_public_key_from_private(&dir, "EcdsaP384Key-2.pk8", "leaf.pub");
+        let root_path = dir.join("root.crt");
+
+        certificate_sign_command(
+            &config_path,
+            &None,
+            &Some(root_path.clone()),
+            &Some(tests::fixture_path("keys", "EcdsaP384Key-0.pk8")),
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &root_public,
+            &Some("root".to_string()),
+        )
+        .unwrap();
+
+        let err = certificate_sign_command(
+            &config_path,
+            &Some(root_path),
+            &None,
+            &Some(tests::fixture_path("keys", "EcdsaP384Key-1.pk8")),
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &leaf_public,
+            &Some("intermediate".to_string()),
+        )
+        .unwrap_err();
+
+        match err {
+            CommandError::AdacError { source } => {
+                assert!(
+                    source
+                        .to_string()
+                        .contains("does not verify against issuer chain")
+                );
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        let _ = fs::remove_dir_all(dir);
+    }
 }

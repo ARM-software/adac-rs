@@ -259,6 +259,9 @@ enum Commands {
         /// Write the resulting token to this file.
         #[arg(short, long, value_name = "OUT")]
         output: Option<PathBuf>,
+        /// Certificate chain whose last certificate is used to verify the generated token.
+        #[arg(long, value_name = "CHAIN")]
+        chain: Option<PathBuf>,
         /// Signing private key in PKCS#8 format (required unless --key-id is used).
         #[arg(short = 'p', long = "private-key", value_name = "PRIVATE_KEY")]
         private_key: Option<PathBuf>,
@@ -330,6 +333,12 @@ enum Commands {
         /// Write the resulting token to this file.
         #[arg(short, long, value_name = "OUT")]
         output: Option<PathBuf>,
+        /// Token challenge as 32 base16-encoded bytes. Required when --chain is used.
+        #[arg(short, long, value_name = "CHALLENGE")]
+        challenge: Option<String>,
+        /// Certificate chain whose last certificate is used to verify the merged token.
+        #[arg(long, value_name = "CHAIN", requires = "challenge")]
+        chain: Option<PathBuf>,
     },
     /// Verify certificate (chain) content.
     Verify {
@@ -520,6 +529,7 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             challenge,
             config,
             output,
+            chain,
             private_key,
             module,
             slot,
@@ -534,6 +544,7 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             challenge,
             config,
             output,
+            chain,
             private_key,
             module,
             slot,
@@ -568,7 +579,9 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             input,
             signature,
             output,
-        } => token::token_merge_command(input, signature, output),
+            challenge,
+            chain,
+        } => token::token_merge_command(input, signature, output, challenge, chain),
         Commands::Verify {
             input,
             token,
