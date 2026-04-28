@@ -453,6 +453,8 @@ adac-cli token-offline-merge \
 
 Use this subcommand to verify the integrity of a certificate or all the certificates in a chain. It can also verify an authentication token against the leaf certificate public key.
 
+Verification checks that the supplied chain is internally consistent: each certificate is verified against the preceding certificate, starting from the root certificate included in the input. It does not determine whether that root certificate is trustworthy or matches an expected deployment root.
+
 ```
 Usage: adac-cli verify [OPTIONS] <INPUT>
 ```
