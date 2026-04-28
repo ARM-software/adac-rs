@@ -34,7 +34,7 @@ pub fn certificate_sign_command(
     private_key: &Option<PathBuf>,
     module: &Option<String>,
     slot: &Option<String>,
-    pin: &Option<String>,
+    pin: &Option<shared::PinSecret>,
     pin_file: &Option<String>,
     pin_env: &Option<String>,
     key_id: &Option<String>,
@@ -74,24 +74,7 @@ pub fn certificate_sign_command(
             std::env::var("PKCS11_SLOT").ok()
         };
 
-        let pin = if let Some(p) = pin {
-            p.clone()
-        } else if let Some(p) = pin_file {
-            fs::read_to_string(p).map_err(|e| CommandError::FileRead {
-                path: p.clone().into(),
-                source: e,
-            })?
-        } else if let Some(env) = pin_env {
-            std::env::var(env).map_err(|_| CommandError::AdacError {
-                source: anyhow::anyhow!("Environment variable {} not set", env),
-            })?
-        } else if let Ok(p) = std::env::var("PKCS11_PIN") {
-            p
-        } else {
-            return Err(CommandError::AdacError {
-                source: anyhow::anyhow!("Parameter --pin or --pin-env or --pin-file is required."),
-            });
-        };
+        let pin = shared::resolve_pkcs11_pin(pin, pin_file, pin_env)?;
 
         let mut crypto = shared::create_pkcs11_provider(module, pin, slot)?;
         crypto

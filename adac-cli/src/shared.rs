@@ -6,6 +6,33 @@ use adac::KeyOptions;
 use adac::certificate::AdacCertificate;
 use adac::token::AdacToken;
 use adac_crypto_pkcs11::Pkcs11Provider;
+use std::convert::Infallible;
+use std::fmt;
+use std::path::PathBuf;
+use zeroize::Zeroizing;
+
+#[derive(Clone)]
+pub(crate) struct PinSecret(Zeroizing<String>);
+
+impl PinSecret {
+    pub(crate) fn expose_clone(&self) -> Zeroizing<String> {
+        self.0.clone()
+    }
+}
+
+impl std::str::FromStr for PinSecret {
+    type Err = Infallible;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Ok(Self(Zeroizing::new(value.to_string())))
+    }
+}
+
+impl fmt::Debug for PinSecret {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("[REDACTED]")
+    }
+}
 
 pub(crate) fn decode_base16_parameter(
     value: &str,
@@ -60,12 +87,41 @@ pub(crate) fn decode_hex_integer_parameter_with_length(
 
 pub(crate) fn create_pkcs11_provider(
     module: String,
-    pin: String,
+    pin: Zeroizing<String>,
     slot: Option<String>,
 ) -> Result<Pkcs11Provider, CommandError> {
     Pkcs11Provider::new(module, pin, slot).map_err(|e| CommandError::AdacError {
         source: anyhow::anyhow!("Error creating PKCS#11 session: {:?}", e),
     })
+}
+
+pub(crate) fn resolve_pkcs11_pin(
+    pin: &Option<PinSecret>,
+    pin_file: &Option<String>,
+    pin_env: &Option<String>,
+) -> Result<Zeroizing<String>, CommandError> {
+    if let Some(pin) = pin {
+        Ok(pin.expose_clone())
+    } else if let Some(pin_file) = pin_file {
+        std::fs::read_to_string(pin_file)
+            .map(Zeroizing::new)
+            .map_err(|e| CommandError::FileRead {
+                path: PathBuf::from(pin_file),
+                source: e,
+            })
+    } else if let Some(pin_env) = pin_env {
+        std::env::var(pin_env)
+            .map(Zeroizing::new)
+            .map_err(|_| CommandError::AdacError {
+                source: anyhow::anyhow!("Environment variable {} not set", pin_env),
+            })
+    } else if let Ok(pin) = std::env::var("PKCS11_PIN") {
+        Ok(Zeroizing::new(pin))
+    } else {
+        Err(CommandError::AdacError {
+            source: anyhow::anyhow!("Parameter --pin or --pin-env or --pin-file is required."),
+        })
+    }
 }
 
 pub(crate) fn verify_certificate_signed_by_issuer(

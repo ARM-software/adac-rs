@@ -12,12 +12,17 @@ use cryptoki::mechanism::Mechanism;
 use cryptoki::session::{Session, UserType};
 use cryptoki::slot::Slot;
 use cryptoki::types::AuthPin;
+use zeroize::Zeroizing;
 
-pub fn pkcs11_create_session(
+pub fn pkcs11_create_session<P>(
     module: String,
-    pin: String,
+    pin: P,
     token_label: Option<String>,
-) -> Result<(Pkcs11, Slot, Session), AdacError> {
+) -> Result<(Pkcs11, Slot, Session), AdacError>
+where
+    P: Into<Zeroizing<String>>,
+{
+    let pin = pin.into();
     let pkcs11 = Pkcs11::new(module)
         .map_err(|e| AdacError::CryptoProviderError(format!("Loading PKCS#11 module: {e}")))?;
 
@@ -60,8 +65,9 @@ pub fn pkcs11_create_session(
         .map_err(|e| AdacError::CryptoProviderError(format!("Opening PKCS#11 session: {e}")))?;
 
     // log in the session
+    let pin = AuthPin::from(pin.as_str());
     session
-        .login(UserType::User, Some(&AuthPin::new(pin.into())))
+        .login(UserType::User, Some(&pin))
         .map_err(|e| AdacError::CryptoProviderError(format!("Logging into PKCS#11 token: {e}")))?;
 
     Ok((pkcs11, slot, session))

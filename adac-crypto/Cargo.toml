@@ -31,4 +31,7 @@ spki = { workspace = true }
 sm2 = { workspace = true }
 
 [lints.clippy]
+dbg_macro = "deny"
+print_stderr = "deny"
+print_stdout = "deny"
 type_complexity = "allow"

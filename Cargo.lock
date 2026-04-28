@@ -28,6 +28,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "zeroize",
 ]
 
 [[package]]
@@ -63,6 +64,7 @@ dependencies = [
  "adac",
  "adac-crypto",
  "aws-lc-rs",
+ "zeroize",
 ]
 
 [[package]]
@@ -88,6 +90,7 @@ dependencies = [
  "rsa",
  "sha2",
  "spki 0.7.3",
+ "zeroize",
 ]
 
 [[package]]
@@ -117,6 +120,7 @@ dependencies = [
  "signature 2.2.0",
  "sm2",
  "sm3",
+ "zeroize",
 ]
 
 [[package]]
@@ -141,6 +145,7 @@ dependencies = [
  "rsa",
  "sha2",
  "spki 0.7.3",
+ "zeroize",
 ]
 
 [[package]]

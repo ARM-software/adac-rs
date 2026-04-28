@@ -5,6 +5,7 @@ use adac::traits::*;
 use adac::{AdacError, KeyOptions};
 use adac_cryptoki::{private, public};
 use cryptoki::{object::ObjectHandle, session::Session};
+use zeroize::Zeroizing;
 
 pub struct Pkcs11Provider {
     // pkcs11: Pkcs11,
@@ -17,11 +18,10 @@ unsafe impl Send for Pkcs11Provider {}
 unsafe impl Sync for Pkcs11Provider {}
 
 impl Pkcs11Provider {
-    pub fn new(
-        module: String,
-        pin: String,
-        token_label: Option<String>,
-    ) -> Result<Self, AdacError> {
+    pub fn new<P>(module: String, pin: P, token_label: Option<String>) -> Result<Self, AdacError>
+    where
+        P: Into<Zeroizing<String>>,
+    {
         let (_pkcs11, _slot, session) =
             adac_cryptoki::pkcs11_create_session(module, pin, token_label)?;
 

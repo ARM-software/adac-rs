@@ -27,6 +27,10 @@ pkcs8 = { workspace = true }
 rsa = { workspace = true }
 sha2 = { workspace = true }
 spki = { workspace = true }
+zeroize = { workspace = true }
 
 [lints.clippy]
+dbg_macro = "deny"
+print_stderr = "deny"
+print_stdout = "deny"
 type_complexity = "allow"

@@ -38,7 +38,7 @@ pub fn token_sign_command(
     module: &Option<String>,
     slot: &Option<String>,
     permissions: &Option<String>,
-    pin: &Option<String>,
+    pin: &Option<shared::PinSecret>,
     pin_file: &Option<String>,
     pin_env: &Option<String>,
     key_id: &Option<String>,
@@ -388,7 +388,7 @@ fn load_signing_provider(
     private_key: &Option<PathBuf>,
     module: &Option<String>,
     slot: &Option<String>,
-    pin: &Option<String>,
+    pin: &Option<shared::PinSecret>,
     pin_file: &Option<String>,
     pin_env: &Option<String>,
     key_id: &Option<String>,
@@ -403,7 +403,7 @@ fn load_signing_provider(
 
         let module = resolve_pkcs11_module(module)?;
         let slot = resolve_pkcs11_slot(slot);
-        let pin = resolve_pkcs11_pin(pin, pin_file, pin_env)?;
+        let pin = shared::resolve_pkcs11_pin(pin, pin_file, pin_env)?;
 
         let mut crypto = shared::create_pkcs11_provider(module, pin, slot)?;
         crypto
@@ -474,31 +474,6 @@ fn resolve_pkcs11_slot(slot: &Option<String>) -> Option<String> {
         Some(slot.clone())
     } else {
         std::env::var("PKCS11_SLOT").ok()
-    }
-}
-
-fn resolve_pkcs11_pin(
-    pin: &Option<String>,
-    pin_file: &Option<String>,
-    pin_env: &Option<String>,
-) -> Result<String, CommandError> {
-    if let Some(pin) = pin {
-        Ok(pin.clone())
-    } else if let Some(pin_file) = pin_file {
-        fs::read_to_string(pin_file).map_err(|e| CommandError::FileRead {
-            path: pin_file.clone().into(),
-            source: e,
-        })
-    } else if let Some(pin_env) = pin_env {
-        std::env::var(pin_env).map_err(|_| CommandError::AdacError {
-            source: anyhow::anyhow!("Environment variable {} not set", pin_env),
-        })
-    } else if let Ok(pin) = std::env::var("PKCS11_PIN") {
-        Ok(pin)
-    } else {
-        Err(CommandError::AdacError {
-            source: anyhow::anyhow!("Parameter --pin or --pin-env or --pin-file is required."),
-        })
     }
 }
 

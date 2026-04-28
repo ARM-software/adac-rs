@@ -8,10 +8,11 @@ use aws_lc_rs::unstable::signature::{
     ML_DSA_44, ML_DSA_65, ML_DSA_87, PqdsaKeyPair, PqdsaVerificationAlgorithm,
 };
 use aws_lc_rs::{digest::*, signature::*};
+use zeroize::Zeroizing;
 
 pub struct AwsLcKey {
     key_type: KeyOptions,
-    key: Vec<u8>,
+    key: Zeroizing<Vec<u8>>,
 }
 
 #[derive(Default)]
@@ -21,7 +22,7 @@ pub struct AwsLcCryptoProvider {
 
 impl AwsLcCryptoProvider {
     fn load_ecdsa_key(&mut self, key_type: KeyOptions, key: &[u8]) -> Result<Vec<u8>, AdacError> {
-        let key = key.to_vec();
+        let key = Zeroizing::new(key.to_vec());
 
         let alg = match key_type {
             EcdsaP256Sha256 => &ECDSA_P256_SHA256_FIXED_SIGNING,
@@ -45,7 +46,7 @@ impl AwsLcCryptoProvider {
     }
 
     fn load_mldsa_key(&mut self, key_type: KeyOptions, key: &[u8]) -> Result<Vec<u8>, AdacError> {
-        let key = key.to_vec();
+        let key = Zeroizing::new(key.to_vec());
 
         let alg = match key_type {
             MlDsa44Sha256 => &aws_lc_rs::unstable::signature::ML_DSA_44_SIGNING,

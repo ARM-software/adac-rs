@@ -46,3 +46,4 @@ signature = "2.2"
 sm2 = { version = "0.13", features = ["arithmetic", "dsa", "pkcs8"] }
 sm3 = "0.4"
 spki = { version = "0.7", features = ["alloc", "fingerprint", "pem", "std"] }
+zeroize = "1.8.2"

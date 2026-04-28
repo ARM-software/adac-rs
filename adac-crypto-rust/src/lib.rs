@@ -22,10 +22,11 @@ use rsa::signature::{RandomizedSigner, SignatureEncoding, Verifier};
 use sha2::{Sha256, Sha384, Sha512};
 use sha3::Shake256;
 use signature::Signer;
+use zeroize::Zeroizing;
 
 pub struct RustCryptoKey {
     key_type: KeyOptions,
-    key: Vec<u8>,
+    key: Zeroizing<Vec<u8>>,
 }
 
 pub struct RustCryptoProvider {
@@ -108,8 +109,6 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 let sig = ed25519_dalek::Signature::from_slice(signature)
                     .map_err(|e| AdacError::Encoding(format!("Decoding signature: {}", e)))?;
                 let prehash = sha2::Sha512::new().chain_update(data);
-                let h = prehash.clone().finalize();
-                println!("{}", base16ct::lower::encode_string(h.as_slice()));
                 vk.verify_prehashed(prehash, None, &sig).map_err(|e| {
                     AdacError::CryptoProviderError(format!("Signature verification: {}", e))
                 })?;
@@ -264,15 +263,10 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 let pkey = ed25519_dalek::SigningKey::from_pkcs8_der(current_key.key.as_slice())
                     .map_err(|e| AdacError::Encoding(format!("Decoding private key: {}", e)))?;
                 let prehash = sha2::Sha512::new().chain_update(data);
-                let h = prehash.clone().finalize();
-                println!("prehash = {}", base16ct::lower::encode_string(h.as_slice()));
-                let sig = pkey
-                    .sign_prehashed(prehash, None)
+                pkey.sign_prehashed(prehash, None)
                     .map_err(|e| AdacError::CryptoProviderError(format!("Signing: {}", e)))?
                     .to_bytes()
-                    .to_vec();
-                println!("sig = {}", base16ct::lower::encode_string(sig.as_slice()));
-                sig
+                    .to_vec()
             }
             Ed448Shake256 => {
                 let (secret_key, verifying_key, _) = ed_448::load_key(current_key.key.as_slice())?;
@@ -363,19 +357,19 @@ impl AdacCryptoProvider for RustCryptoProvider {
         key: &[u8],
     ) -> Result<Vec<u8>, AdacError> {
         if format == AdacKeyFormat::Pkcs8 {
-            let key = key.to_vec();
+            let key = Zeroizing::new(key.to_vec());
 
             let public_key = match key_type {
-                EcdsaP256Sha256 => public::ec_dsa::spki_from_pkcs8::<NistP256>(&key.to_vec())?,
-                EcdsaP384Sha384 => public::ec_dsa::spki_from_pkcs8::<NistP384>(&key.to_vec())?,
-                EcdsaP521Sha512 => public::ec_dsa::spki_from_pkcs8::<NistP521>(&key.to_vec())?,
-                Ed25519Sha512 => public::ed_25519::spki_from_pkcs8(&key.to_vec())?,
-                Ed448Shake256 => public::ed_448::spki_from_pkcs8(&key.to_vec())?,
-                MlDsa44Sha256 => public::ml_dsa::spki_from_pkcs8::<MlDsa44>(&key.to_vec())?,
-                MlDsa65Sha384 => public::ml_dsa::spki_from_pkcs8::<MlDsa65>(&key.to_vec())?,
-                MlDsa87Sha512 => public::ml_dsa::spki_from_pkcs8::<MlDsa87>(&key.to_vec())?,
-                Rsa3072Sha256 | Rsa4096Sha256 => public::rsa::spki_from_pkcs8(&key.to_vec())?,
-                SmSm2Sm3 => public::sm::spki_from_pkcs8(&key.to_vec())?,
+                EcdsaP256Sha256 => public::ec_dsa::spki_from_pkcs8::<NistP256>(&key)?,
+                EcdsaP384Sha384 => public::ec_dsa::spki_from_pkcs8::<NistP384>(&key)?,
+                EcdsaP521Sha512 => public::ec_dsa::spki_from_pkcs8::<NistP521>(&key)?,
+                Ed25519Sha512 => public::ed_25519::spki_from_pkcs8(&key)?,
+                Ed448Shake256 => public::ed_448::spki_from_pkcs8(&key)?,
+                MlDsa44Sha256 => public::ml_dsa::spki_from_pkcs8::<MlDsa44>(&key)?,
+                MlDsa65Sha384 => public::ml_dsa::spki_from_pkcs8::<MlDsa65>(&key)?,
+                MlDsa87Sha512 => public::ml_dsa::spki_from_pkcs8::<MlDsa87>(&key)?,
+                Rsa3072Sha256 | Rsa4096Sha256 => public::rsa::spki_from_pkcs8(&key)?,
+                SmSm2Sm3 => public::sm::spki_from_pkcs8(&key)?,
                 _ => return Err(AdacError::UnsupportedAlgorithm),
             };
 

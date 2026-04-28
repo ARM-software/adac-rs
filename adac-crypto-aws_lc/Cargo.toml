@@ -12,3 +12,9 @@ license = "BSD-3-Clause"
 adac = { path = "../adac" }
 adac-crypto = { path = "../adac-crypto" }
 aws-lc-rs = { version = "1.16", features = ["unstable"] }
+zeroize = { workspace = true }
+
+[lints.clippy]
+dbg_macro = "deny"
+print_stderr = "deny"
+print_stdout = "deny"

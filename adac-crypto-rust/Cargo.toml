@@ -32,6 +32,10 @@ sha2 = { workspace = true }
 sha3 = { workspace = true }
 sm2 = { workspace = true }
 sm3 = { workspace = true }
+zeroize = { workspace = true }
 
 [lints.clippy]
+dbg_macro = "deny"
+print_stderr = "deny"
+print_stdout = "deny"
 type_complexity = "allow"

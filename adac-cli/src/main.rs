@@ -130,7 +130,7 @@ enum Commands {
         slot: Option<String>,
         /// User PIN for the slot. Defaults to --pin-file/--pin-env or $PKCS11_PIN.
         #[arg(long, value_name = "PIN")]
-        pin: Option<String>,
+        pin: Option<shared::PinSecret>,
         /// Read the user PIN from the specified file.
         #[arg(long, value_name = "FILE")]
         pin_file: Option<String>,
@@ -192,7 +192,7 @@ enum Commands {
         slot: Option<String>,
         /// User PIN for the PKCS#11 slot. Defaults to --pin-file/--pin-env or $PKCS11_PIN.
         #[arg(long, value_name = "PIN")]
-        pin: Option<String>,
+        pin: Option<shared::PinSecret>,
         /// Read the PKCS#11 user PIN from this file.
         #[arg(long, value_name = "FILE")]
         pin_file: Option<String>,
@@ -276,7 +276,7 @@ enum Commands {
         permissions: Option<String>,
         /// User PIN for the PKCS#11 slot. Defaults to --pin-file/--pin-env or $PKCS11_PIN.
         #[arg(long, value_name = "PIN")]
-        pin: Option<String>,
+        pin: Option<shared::PinSecret>,
         /// Read the PKCS#11 user PIN from this file.
         #[arg(long, value_name = "FILE")]
         pin_file: Option<String>,
@@ -352,6 +352,25 @@ enum Commands {
         #[arg(short, long, value_name = "CHALLENGE")]
         challenge: Option<String>,
     },
+}
+
+impl Commands {
+    fn name(&self) -> &'static str {
+        match self {
+            Commands::Display { .. } => "display",
+            Commands::Pkcs11 { .. } => "pkcs11-keygen",
+            Commands::Pop { .. } => "pop",
+            Commands::Push { .. } => "push",
+            Commands::RotHash { .. } => "rot-hash",
+            Commands::CertificateSign { .. } => "certificate-sign",
+            Commands::CertificateOfflinePrepare { .. } => "certificate-offline-prepare",
+            Commands::CertificateOfflineMerge { .. } => "certificate-offline-merge",
+            Commands::TokenSign { .. } => "token-sign",
+            Commands::TokenOfflinePrepare { .. } => "token-offline-prepare",
+            Commands::TokenOfflineMerge { .. } => "token-offline-merge",
+            Commands::Verify { .. } => "verify",
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -588,7 +607,7 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
             challenge,
         } => verify::verify_command(input, token, challenge),
     }
-    .with_context(|| format!("{:?} command failed", cli.cmd))?;
+    .with_context(|| format!("{} command failed", cli.cmd.name()))?;
 
     match cli.output_format {
         OutputFormat::Text => {
@@ -645,4 +664,25 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
     }
 
     Ok(0)
+}
+
+#[cfg(test)]
+mod main_tests {
+    use super::*;
+
+    #[test]
+    fn pkcs11_pin_is_redacted_from_debug_context() {
+        let cmd = Commands::Pkcs11 {
+            key_type: "EcdsaP384Sha384".to_string(),
+            module: None,
+            slot: None,
+            pin: Some("123456".parse().unwrap()),
+            pin_file: None,
+            pin_env: None,
+        };
+
+        assert_eq!(cmd.name(), "pkcs11-keygen");
+        assert!(!format!("{} command failed", cmd.name()).contains("123456"));
+        assert!(!format!("{cmd:?}").contains("123456"));
+    }
 }
