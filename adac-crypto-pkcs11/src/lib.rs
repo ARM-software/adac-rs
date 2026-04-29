@@ -8,14 +8,9 @@ use cryptoki::{object::ObjectHandle, session::Session};
 use zeroize::Zeroizing;
 
 pub struct Pkcs11Provider {
-    // pkcs11: Pkcs11,
-    // slot: Slot,
     session: Session,
     current_key: Option<ObjectHandle>,
 }
-
-unsafe impl Send for Pkcs11Provider {}
-unsafe impl Sync for Pkcs11Provider {}
 
 impl Pkcs11Provider {
     pub fn new<P>(module: String, pin: P, token_label: Option<String>) -> Result<Self, AdacError>
@@ -26,8 +21,6 @@ impl Pkcs11Provider {
             adac_cryptoki::pkcs11_create_session(module, pin, token_label)?;
 
         Ok(Self {
-            // pkcs11,
-            // slot,
             session,
             current_key: None,
         })

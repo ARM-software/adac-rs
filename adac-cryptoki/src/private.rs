@@ -49,13 +49,50 @@ pub fn find_keypair(
     key_type: KeyOptions,
     key_id: &[u8],
 ) -> Result<(ObjectHandle, ObjectHandle), AdacError> {
-    match key_type {
+    let (private, public) = match key_type {
         EcdsaP256Sha256 | EcdsaP384Sha384 | EcdsaP521Sha512 | Ed25519Sha512 | Ed448Shake256 => {
             ec::find_keypair(session, key_type, key_id)
         }
         Rsa3072Sha256 | Rsa4096Sha256 => rsa::find_keypair(session, key_type, key_id),
         _ => Err(AdacError::UnsupportedAlgorithm),
+    }?;
+
+    // validate_keypair(session, key_type, private, public)?;
+    Ok((private, public))
+}
+
+pub(crate) fn unique_key_object(
+    matches: &[ObjectHandle],
+    object_name: &str,
+    key_id: &[u8],
+) -> Result<ObjectHandle, AdacError> {
+    match matches {
+        [] => Err(AdacError::CryptoProviderError(format!(
+            "PKCS#11 {object_name} with ID '{}' was not found",
+            base16ct::lower::encode_string(key_id)
+        ))),
+        [object] => Ok(*object),
+        _ => Err(AdacError::CryptoProviderError(format!(
+            "Multiple PKCS#11 {object_name} objects with ID '{}' were found",
+            base16ct::lower::encode_string(key_id)
+        ))),
     }
+}
+
+#[allow(dead_code)]
+fn validate_keypair(
+    session: &Session,
+    key_type: KeyOptions,
+    private: ObjectHandle,
+    public: ObjectHandle,
+) -> Result<(), AdacError> {
+    let probe = b"ADAC PKCS#11 key pair consistency check";
+    let signature = sign(session, key_type, private, probe)?;
+    public::verify(session, key_type, public, probe, signature.as_slice()).map_err(|e| {
+        AdacError::CryptoProviderError(format!(
+            "PKCS#11 public and private key objects do not form a valid key pair: {e:?}"
+        ))
+    })
 }
 
 pub fn kid_from_public_handle(

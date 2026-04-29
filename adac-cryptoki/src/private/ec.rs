@@ -205,39 +205,32 @@ pub fn find_keypair(
     key_type: KeyOptions,
     key_id: &[u8],
 ) -> Result<(ObjectHandle, ObjectHandle), AdacError> {
+    let ec_params = adac_crypto::public::get_ec_params_oid_der(key_type)?;
     let private_key_search = vec![
         Attribute::Token(true),
         Attribute::Id(key_id.to_vec()),
         Attribute::Class(ObjectClass::PRIVATE_KEY),
         Attribute::KeyType(get_ec_key_type(key_type)?),
+        Attribute::EcParams(ec_params.clone()),
     ];
     let private_keys = session
         .find_objects(&private_key_search)
         .map_err(|e| AdacError::CryptoProviderError(e.to_string()))?;
 
-    // TODO: Found more than one key?
-    if private_keys.is_empty() {
-        return Err(AdacError::CryptoProviderError(
-            "Public key not found".to_string(),
-        ));
-    }
+    let private = super::unique_key_object(&private_keys, "private key", key_id)?;
 
     let public_key_search = vec![
         Attribute::Token(true),
         Attribute::Id(key_id.to_vec()),
         Attribute::Class(ObjectClass::PUBLIC_KEY),
         Attribute::KeyType(get_ec_key_type(key_type)?),
+        Attribute::EcParams(ec_params),
     ];
     let public_keys = session
         .find_objects(&public_key_search)
         .map_err(|e| AdacError::CryptoProviderError(e.to_string()))?;
 
-    // TODO: Found more than one key?
-    if public_keys.is_empty() {
-        return Err(AdacError::CryptoProviderError(
-            "Public key not found".to_string(),
-        ));
-    }
+    let public = super::unique_key_object(&public_keys, "public key", key_id)?;
 
-    Ok((private_keys[0], public_keys[0]))
+    Ok((private, public))
 }

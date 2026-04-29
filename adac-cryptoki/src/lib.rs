@@ -31,9 +31,8 @@ where
         .initialize(CInitializeArgs::new(CInitializeFlags::OS_LOCKING_OK))
         .map_err(|e| AdacError::CryptoProviderError(format!("Initializing PKCS#11 module: {e}")))?;
 
-    // find a slot, get the first one
     let slots = pkcs11
-        .get_slots_with_token()
+        .get_slots_with_initialized_token()
         .map_err(|e| AdacError::CryptoProviderError(format!("Enumerating PKCS#11 slots: {e}")))?;
     if slots.is_empty() {
         return Err(AdacError::CryptoProviderError(
@@ -41,22 +40,37 @@ where
         ));
     }
     let slot = if let Some(label) = token_label {
-        slots
+        let matching_slots = slots
             .iter()
             .copied()
-            .find(|slot| {
+            .filter(|slot| {
                 pkcs11
                     .get_token_info(*slot)
                     .is_ok_and(|token_info| token_info.label() == label)
             })
-            .ok_or_else(|| {
-                AdacError::CryptoProviderError(format!(
+            .collect::<Vec<_>>();
+        match matching_slots.as_slice() {
+            [] => {
+                return Err(AdacError::CryptoProviderError(format!(
                     "PKCS#11 token with label '{}' was not found",
                     label
-                ))
-            })?
+                )));
+            }
+            [slot] => *slot,
+            _ => {
+                return Err(AdacError::CryptoProviderError(format!(
+                    "Multiple PKCS#11 tokens with label '{}' were found",
+                    label
+                )));
+            }
+        }
+    } else if let [slot] = slots.as_slice() {
+        *slot
     } else {
-        slots[0]
+        return Err(AdacError::CryptoProviderError(
+            "Multiple initialized PKCS#11 tokens were found; select one with a slot label"
+                .to_string(),
+        ));
     };
 
     // open a session

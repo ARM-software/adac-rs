@@ -139,12 +139,7 @@ pub fn find_keypair(
         .find_objects(&private_key_search)
         .map_err(|e| AdacError::CryptoProviderError(e.to_string()))?;
 
-    // TODO: Found more than one key?
-    if private_keys.is_empty() {
-        return Err(AdacError::CryptoProviderError(
-            "Public key not found".to_string(),
-        ));
-    }
+    let private = super::unique_key_object(&private_keys, "private key", key_id)?;
 
     let public_key_search = vec![
         Attribute::Token(true),
@@ -156,12 +151,7 @@ pub fn find_keypair(
         .find_objects(&public_key_search)
         .map_err(|e| AdacError::CryptoProviderError(e.to_string()))?;
 
-    // TODO: Found more than one key?
-    if public_keys.is_empty() {
-        return Err(AdacError::CryptoProviderError(
-            "Public key not found".to_string(),
-        ));
-    }
+    let public = super::unique_key_object(&public_keys, "public key", key_id)?;
 
-    Ok((private_keys[0], public_keys[0]))
+    Ok((private, public))
 }
