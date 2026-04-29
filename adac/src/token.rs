@@ -149,6 +149,7 @@ impl AdacToken {
         if key_type != h.signature_type {
             return Err(AdacError::InconsistentCrypto);
         }
+        crate::validate_token_challenge(challenge)?;
 
         let extension_hash = match extensions {
             Some(extensions) => {
@@ -197,6 +198,8 @@ impl AdacToken {
         challenge: &[u8],
         provider: &dyn AdacCryptoProvider,
     ) -> Result<(), AdacError> {
+        crate::validate_token_challenge(challenge)?;
+
         if self.header().extensions_bytes == 0 {
             for h in self.get_extensions_hash() {
                 if *h != 0x0 {

@@ -279,6 +279,16 @@ pub fn validate_public_key_padding(
     Ok(unpadded)
 }
 
+pub const TOKEN_CHALLENGE_SIZE: usize = 32;
+
+pub fn validate_token_challenge(challenge: &[u8]) -> Result<(), AdacError> {
+    if challenge.len() != TOKEN_CHALLENGE_SIZE {
+        return Err(AdacError::InvalidLength);
+    }
+
+    Ok(())
+}
+
 pub const ECDSA_P256_PUBLIC_KEY_SIZE: usize = 64;
 pub const ECDSA_P256_SIGNATURE_SIZE: usize = 64;
 pub const ECDSA_P256_HASH_SIZE: usize = 32;
