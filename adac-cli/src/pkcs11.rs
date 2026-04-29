@@ -28,9 +28,8 @@ impl Pkcs11GenerateReport {
 fn parse_pkcs11_keygen_key_type(value: &str) -> Result<adac::KeyOptions, CommandError> {
     let key_type = shared::parse_cli_key_type(value)?;
     match key_type {
-        EcdsaP256Sha256 | EcdsaP384Sha384 | EcdsaP521Sha512 | Rsa3072Sha256 | Rsa4096Sha256 => {
-            Ok(key_type)
-        }
+        EcdsaP256Sha256 | EcdsaP384Sha384 | EcdsaP521Sha512 | MlDsa44Sha256 | MlDsa65Sha384
+        | MlDsa87Sha512 | Rsa3072Sha256 | Rsa4096Sha256 => Ok(key_type),
         _ => Err(CommandError::AdacError {
             source: anyhow::anyhow!("Algorithm '{}' not supported", value),
         }),

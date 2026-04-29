@@ -9,6 +9,7 @@ use adac::{AdacVersion, CertificateHeader, KeyOptions};
 
 mod aws_lc;
 mod cryptoki;
+mod cryptoki_mldsa;
 mod encoding;
 mod ml_dsa;
 pub mod pkcs11;

@@ -135,49 +135,75 @@ fn display_final(
     }
 }
 
-static TESTS: [(KeyOptions, &str, &str, &str); 7] = [
-    (
-        EcdsaP256Sha256,
-        "EcdsaP256Sha256",
-        include_str!("../resources/keys/EcdsaP256Key-0.pk8"),
-        include_str!("../resources/roots/root.EcdsaP256"),
-    ),
-    (
-        EcdsaP384Sha384,
-        "EcdsaP384Sha384",
-        include_str!("../resources/keys/EcdsaP384Key-0.pk8"),
-        include_str!("../resources/roots/root.EcdsaP384"),
-    ),
-    (
-        EcdsaP521Sha512,
-        "EcdsaP521Sha512",
-        include_str!("../resources/keys/EcdsaP521Key-0.pk8"),
-        include_str!("../resources/roots/root.EcdsaP521"),
-    ),
-    (
-        Rsa3072Sha256,
-        "Rsa3072Sha256",
-        include_str!("../resources/keys/Rsa3072Key-0.pk8"),
-        include_str!("../resources/roots/root.Rsa3072"),
-    ),
-    (
-        Rsa4096Sha256,
-        "Rsa4096Sha256",
-        include_str!("../resources/keys/Rsa4096Key-0.pk8"),
-        include_str!("../resources/roots/root.Rsa4096"),
-    ),
-    (
-        Ed25519Sha512,
-        "Ed25519Sha512",
-        include_str!("../resources/keys/Ed25519Key-0.pk8"),
-        include_str!("../resources/roots/root.Ed25519"),
-    ),
-    (
-        Ed448Shake256,
-        "Ed448Shake256",
-        include_str!("../resources/keys/Ed448Key-0.pk8"),
-        include_str!("../resources/roots/root.Ed448"),
-    ),
+#[derive(Copy, Clone)]
+struct TestCase {
+    key_type: KeyOptions,
+    name: &'static str,
+    import_key: Option<&'static str>,
+    certificate: &'static str,
+}
+
+static TESTS: [TestCase; 10] = [
+    TestCase {
+        key_type: EcdsaP256Sha256,
+        name: "EcdsaP256Sha256",
+        import_key: Some(include_str!("../resources/keys/EcdsaP256Key-0.pk8")),
+        certificate: include_str!("../resources/roots/root.EcdsaP256"),
+    },
+    TestCase {
+        key_type: EcdsaP384Sha384,
+        name: "EcdsaP384Sha384",
+        import_key: Some(include_str!("../resources/keys/EcdsaP384Key-0.pk8")),
+        certificate: include_str!("../resources/roots/root.EcdsaP384"),
+    },
+    TestCase {
+        key_type: EcdsaP521Sha512,
+        name: "EcdsaP521Sha512",
+        import_key: Some(include_str!("../resources/keys/EcdsaP521Key-0.pk8")),
+        certificate: include_str!("../resources/roots/root.EcdsaP521"),
+    },
+    TestCase {
+        key_type: Rsa3072Sha256,
+        name: "Rsa3072Sha256",
+        import_key: Some(include_str!("../resources/keys/Rsa3072Key-0.pk8")),
+        certificate: include_str!("../resources/roots/root.Rsa3072"),
+    },
+    TestCase {
+        key_type: Rsa4096Sha256,
+        name: "Rsa4096Sha256",
+        import_key: Some(include_str!("../resources/keys/Rsa4096Key-0.pk8")),
+        certificate: include_str!("../resources/roots/root.Rsa4096"),
+    },
+    TestCase {
+        key_type: Ed25519Sha512,
+        name: "Ed25519Sha512",
+        import_key: Some(include_str!("../resources/keys/Ed25519Key-0.pk8")),
+        certificate: include_str!("../resources/roots/root.Ed25519"),
+    },
+    TestCase {
+        key_type: Ed448Shake256,
+        name: "Ed448Shake256",
+        import_key: Some(include_str!("../resources/keys/Ed448Key-0.pk8")),
+        certificate: include_str!("../resources/roots/root.Ed448"),
+    },
+    TestCase {
+        key_type: MlDsa44Sha256,
+        name: "MlDsa44Sha256",
+        import_key: None,
+        certificate: include_str!("../resources/roots/root.MlDsa44"),
+    },
+    TestCase {
+        key_type: MlDsa65Sha384,
+        name: "MlDsa65Sha384",
+        import_key: None,
+        certificate: include_str!("../resources/roots/root.MlDsa65"),
+    },
+    TestCase {
+        key_type: MlDsa87Sha512,
+        name: "MlDsa87Sha512",
+        import_key: None,
+        certificate: include_str!("../resources/roots/root.MlDsa87"),
+    },
 ];
 
 pub fn adac_test(module: String, pin: String, label: Option<String>) {
@@ -186,19 +212,23 @@ pub fn adac_test(module: String, pin: String, label: Option<String>) {
     let spinner_style = ProgressStyle::with_template("{bar} {wide_msg}").unwrap();
 
     for t in TESTS {
-        println!("\n{}", t.1);
-        let steps = vec![
+        println!("\n{}", t.name);
+        let mut steps = vec![
             (KEY, "Key generation"),
             (LOCKED_WITH_KEY, "Sign"),
             (UNLOCKED, "Verify"),
             (WASTEBASKET, "Delete keypair"),
-            (FLOPPY_DISK, "Load keypair"),
-            (DOWN_ARROW, "Import keypair"),
-            (LOCKED_WITH_KEY, "Sign"),
-            (UNLOCKED, "Verify"),
-            (WASTEBASKET, "Delete keypair"),
-            (MAGNIFYING_GLASS, "Verify certificate"),
         ];
+        if t.import_key.is_some() {
+            steps.extend([
+                (FLOPPY_DISK, "Load keypair"),
+                (DOWN_ARROW, "Import keypair"),
+                (LOCKED_WITH_KEY, "Sign"),
+                (UNLOCKED, "Verify"),
+                (WASTEBASKET, "Delete keypair"),
+            ]);
+        }
+        steps.push((MAGNIFYING_GLASS, "Verify certificate"));
         let mut progress: Vec<(ProgressBar, bool, Option<AdacError>)> = vec![];
         let multi = MultiProgress::new();
         for step in &steps {
@@ -210,7 +240,7 @@ pub fn adac_test(module: String, pin: String, label: Option<String>) {
         let mut step = 0;
 
         // ---------------------------------------------------------------------------------------
-        let (_kid, _key_id, _ski, private, public) = match generate_keypair(&session, t.0) {
+        let (_kid, _key_id, _ski, private, public) = match generate_keypair(&session, t.key_type) {
             Ok(keys) => {
                 progress[step].1 = true;
                 keys
@@ -226,7 +256,7 @@ pub fn adac_test(module: String, pin: String, label: Option<String>) {
 
         test_signature(
             &session,
-            t.0,
+            t.key_type,
             &steps[step..=(step + 1)],
             &mut progress[step..=(step + 1)],
             private,
@@ -244,52 +274,54 @@ pub fn adac_test(module: String, pin: String, label: Option<String>) {
         step += 1;
 
         // ---------------------------------------------------------------------------------------
-        let (kt, key) = read_key(t.2.to_string()).unwrap();
-        if kt == t.0 {
-            progress[step].1 = true;
-        } else {
-            display_final(multi, progress, steps);
-            continue;
-        }
-        display_result(&progress[step], &steps[step]);
-        step += 1;
-
-        let (_, _, _, private, public) = match import_key(&session, t.0, key) {
-            Ok(key) => {
+        if let Some(import_key_path) = t.import_key {
+            let (kt, key) = read_key(import_key_path.to_string()).unwrap();
+            if kt == t.key_type {
                 progress[step].1 = true;
-                key
-            }
-            Err(e) => {
-                progress[step].2 = Some(e);
+            } else {
                 display_final(multi, progress, steps);
                 continue;
             }
-        };
+            display_result(&progress[step], &steps[step]);
+            step += 1;
 
-        display_result(&progress[step], &steps[step]);
-        step += 1;
+            let (_, _, _, private, public) = match import_key(&session, t.key_type, key) {
+                Ok(key) => {
+                    progress[step].1 = true;
+                    key
+                }
+                Err(e) => {
+                    progress[step].2 = Some(e);
+                    display_final(multi, progress, steps);
+                    continue;
+                }
+            };
 
-        test_signature(
-            &session,
-            t.0,
-            &steps[step..=(step + 1)],
-            &mut progress[step..=(step + 1)],
-            private,
-            public,
-        );
-        step += 2;
+            display_result(&progress[step], &steps[step]);
+            step += 1;
 
-        delete_keypair(
-            &session,
-            &steps[step..(step + 1)],
-            &mut progress[step..(step + 1)],
-            private,
-            public,
-        );
-        step += 1;
+            test_signature(
+                &session,
+                t.key_type,
+                &steps[step..=(step + 1)],
+                &mut progress[step..=(step + 1)],
+                private,
+                public,
+            );
+            step += 2;
+
+            delete_keypair(
+                &session,
+                &steps[step..(step + 1)],
+                &mut progress[step..(step + 1)],
+                private,
+                public,
+            );
+            step += 1;
+        }
 
         // ---------------------------------------------------------------------------------------
-        let crt = read_certificates(t.3.to_string()).unwrap();
+        let crt = read_certificates(t.certificate.to_string()).unwrap();
         let crypto = TestCryptoProvider { session: &session };
         match crt[0].verify(crt[0].get_public_key(), &crypto) {
             Ok(()) => {
@@ -297,7 +329,7 @@ pub fn adac_test(module: String, pin: String, label: Option<String>) {
             }
             Err(_) => {
                 let msg = "It is likely that the phFlag in CKK_EDDSA_PARAMS is ignored".to_string();
-                if t.0 == Ed25519Sha512 || t.0 == Ed448Shake256 {
+                if t.key_type == Ed25519Sha512 || t.key_type == Ed448Shake256 {
                     progress[step].2 = Some(AdacError::CryptoProviderError(msg));
                 };
             }

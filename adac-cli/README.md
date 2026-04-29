@@ -132,6 +132,9 @@ Currently the following key types are supported:
  - EcdsaP256Sha256
  - EcdsaP384Sha384
  - EcdsaP521Sha512
+ - MlDsa44Sha256
+ - MlDsa65Sha384
+ - MlDsa87Sha512
  - Rsa3072Sha256
  - Rsa4096Sha256
 
@@ -141,9 +144,6 @@ Currently the following key types are supported:
  - SmSm2Sm3
  - CmacAes
  - HmacSha256
- - MlDsa44Sha256
- - MlDsa65Sha384
- - MlDsa87Sha512
 
 Example command to generate an ECDSA-P384 key, passing values from the environment:
 ```

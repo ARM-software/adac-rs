@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 use adac::KeyOptions::{
-    EcdsaP256Sha256, EcdsaP384Sha384, EcdsaP521Sha512, Ed448Shake256, Ed25519Sha512, Rsa3072Sha256,
-    Rsa4096Sha256,
+    EcdsaP256Sha256, EcdsaP384Sha384, EcdsaP521Sha512, Ed448Shake256, Ed25519Sha512, MlDsa44Sha256,
+    MlDsa65Sha384, MlDsa87Sha512, Rsa3072Sha256, Rsa4096Sha256,
 };
 use adac::{AdacError, KeyOptions};
 use cryptoki::object::ObjectHandle;
@@ -11,6 +11,7 @@ use cryptoki::session::Session;
 use der::{Decode, SliceReader};
 
 pub mod ec;
+pub mod mldsa;
 pub mod rsa;
 
 pub fn load_public_key(
@@ -23,6 +24,9 @@ pub fn load_public_key(
             ec::load_public_key(session, key_type, key_handle)
         }
         Rsa3072Sha256 | Rsa4096Sha256 => rsa::load_public_key(session, key_type, key_handle),
+        MlDsa44Sha256 | MlDsa65Sha384 | MlDsa87Sha512 => {
+            mldsa::load_public_key(session, key_type, key_handle)
+        }
         _ => Err(AdacError::UnsupportedAlgorithm),
     }
 }
@@ -37,6 +41,9 @@ pub fn import_public_key(
             ec::import_public_key(session, key_type, public_key)
         }
         Rsa3072Sha256 | Rsa4096Sha256 => rsa::import_public_key(session, key_type, public_key),
+        MlDsa44Sha256 | MlDsa65Sha384 | MlDsa87Sha512 => {
+            mldsa::import_public_key(session, key_type, public_key)
+        }
         _ => Err(AdacError::UnsupportedAlgorithm),
     }
 }
@@ -48,11 +55,16 @@ pub fn verify(
     data: &[u8],
     signature: &[u8],
 ) -> Result<(), AdacError> {
+    let signature = adac::validate_signature_padding(key_type, signature)?;
+
     match key_type {
         EcdsaP256Sha256 | EcdsaP384Sha384 | EcdsaP521Sha512 | Ed25519Sha512 | Ed448Shake256 => {
             ec::verify(session, key_type, handle, data, signature)
         }
         Rsa3072Sha256 | Rsa4096Sha256 => rsa::verify(session, key_type, handle, data, signature),
+        MlDsa44Sha256 | MlDsa65Sha384 | MlDsa87Sha512 => {
+            mldsa::verify(session, key_type, handle, data, signature)
+        }
         _ => Err(AdacError::UnsupportedAlgorithm),
     }
 }

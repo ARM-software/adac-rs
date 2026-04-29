@@ -89,13 +89,13 @@ where
 
 pub fn hash(session: &Session, key_type: KeyOptions, data: &[u8]) -> Result<Vec<u8>, AdacError> {
     match key_type {
-        EcdsaP256Sha256 | Rsa3072Sha256 | Rsa4096Sha256 => session
+        EcdsaP256Sha256 | Rsa3072Sha256 | Rsa4096Sha256 | MlDsa44Sha256 => session
             .digest(&Mechanism::Sha256, data)
             .map_err(|e| AdacError::CryptoProviderError(e.to_string())),
-        EcdsaP384Sha384 => session
+        EcdsaP384Sha384 | MlDsa65Sha384 => session
             .digest(&Mechanism::Sha384, data)
             .map_err(|e| AdacError::CryptoProviderError(e.to_string())),
-        EcdsaP521Sha512 | Ed25519Sha512 => session
+        EcdsaP521Sha512 | Ed25519Sha512 | MlDsa87Sha512 => session
             .digest(&Mechanism::Sha512, data)
             .map_err(|e| AdacError::CryptoProviderError(e.to_string())),
         Ed448Shake256 => Ok(adac_crypto_rust::ed_448::shake256_digest(data)),

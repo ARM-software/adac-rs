@@ -107,6 +107,40 @@ where
             .encode();
         Ok(evk.to_vec())
     }
+
+    pub fn seed_from_pkcs8(key: &[u8]) -> Result<Vec<u8>, AdacError> {
+        let converter = KeyConverter::<P>::from_pkcs8_der(key).map_err(|e| {
+            AdacError::Encoding(format!("Error decoding ML-DSA key from PKCS#8: {}", e))
+        })?;
+        Ok(converter.seed.to_vec())
+    }
+}
+
+pub fn pkcs8_import_parts(
+    key_type: KeyOptions,
+    key: &[u8],
+) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), AdacError> {
+    let key = key.to_vec();
+    let (seed, adac, spki) = match key_type {
+        MlDsa44Sha256 => (
+            KeyConverter::<MlDsa44>::seed_from_pkcs8(key.as_slice())?,
+            KeyConverter::<MlDsa44>::adac_from_pkcs8(&key)?,
+            spki_from_pkcs8::<MlDsa44>(&key)?,
+        ),
+        MlDsa65Sha384 => (
+            KeyConverter::<MlDsa65>::seed_from_pkcs8(key.as_slice())?,
+            KeyConverter::<MlDsa65>::adac_from_pkcs8(&key)?,
+            spki_from_pkcs8::<MlDsa65>(&key)?,
+        ),
+        MlDsa87Sha512 => (
+            KeyConverter::<MlDsa87>::seed_from_pkcs8(key.as_slice())?,
+            KeyConverter::<MlDsa87>::adac_from_pkcs8(&key)?,
+            spki_from_pkcs8::<MlDsa87>(&key)?,
+        ),
+        _ => return Err(AdacError::UnsupportedAlgorithm),
+    };
+
+    Ok((seed, adac, spki))
 }
 
 pub fn from_adac_mldsa<P>(adac: &[u8]) -> Result<(Vec<u8>, Vec<u8>), AdacError>

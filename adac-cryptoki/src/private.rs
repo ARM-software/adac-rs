@@ -12,6 +12,7 @@ use cryptoki::types::Ulong;
 use sha2::Digest;
 
 pub mod ec;
+pub mod mldsa;
 pub mod rsa;
 
 pub fn generate_keypair(
@@ -21,6 +22,9 @@ pub fn generate_keypair(
     let (public, private) = match key_type {
         EcdsaP256Sha256 | EcdsaP384Sha384 | EcdsaP521Sha512 => {
             ec::generate_ecdsa_keypair(session, key_type)?
+        }
+        MlDsa44Sha256 | MlDsa65Sha384 | MlDsa87Sha512 => {
+            mldsa::generate_keypair(session, key_type)?
         }
         Ed25519Sha512 | Ed448Shake256 => ec::generate_eddsa_keypair(session, key_type)?,
         Rsa3072Sha256 | Rsa4096Sha256 => rsa::generate_keypair(session, key_type)?,
@@ -39,6 +43,7 @@ pub fn import_key(
         EcdsaP256Sha256 | EcdsaP384Sha384 | EcdsaP521Sha512 | Ed25519Sha512 | Ed448Shake256 => {
             ec::import_key(session, key_type, key)
         }
+        MlDsa44Sha256 | MlDsa65Sha384 | MlDsa87Sha512 => mldsa::import_key(session, key_type, key),
         Rsa3072Sha256 | Rsa4096Sha256 => rsa::import_key(session, key_type, key),
         _ => Err(AdacError::UnsupportedAlgorithm),
     }
@@ -54,6 +59,9 @@ pub fn find_keypair(
             ec::find_keypair(session, key_type, key_id)
         }
         Rsa3072Sha256 | Rsa4096Sha256 => rsa::find_keypair(session, key_type, key_id),
+        MlDsa44Sha256 | MlDsa65Sha384 | MlDsa87Sha512 => {
+            mldsa::find_keypair(session, key_type, key_id)
+        }
         _ => Err(AdacError::UnsupportedAlgorithm),
     }?;
 
@@ -168,6 +176,16 @@ pub fn sign(
                 .map_err(|e| AdacError::CryptoProviderError(e.to_string()))?;
             sig.append(&mut vec![0u8; 2]);
             sig
+        }
+        MlDsa44Sha256 | MlDsa65Sha384 | MlDsa87Sha512 => {
+            let params = cryptoki::mechanism::dsa::SignAdditionalContext::new(
+                cryptoki::mechanism::dsa::HedgeType::Preferred,
+                None,
+            );
+            let sig = session
+                .sign(&Mechanism::MlDsa(params), handle, data)
+                .map_err(|e| AdacError::CryptoProviderError(e.to_string()))?;
+            public::mldsa::pad_signature(key_type, sig)?
         }
         _ => return Err(AdacError::UnsupportedAlgorithm),
     };

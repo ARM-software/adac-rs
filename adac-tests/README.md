@@ -16,4 +16,5 @@ latter is part of the `opensc` package).
 
 - `run-tests.sh`: run Rust unit and integration tests.
 - `pkcs11-tests.sh`: run CLI tests for PKCS#11.
+- `pkcs11-test-krypoptic.sh`: run CLI tests for PKCS#11 ML-DSA with Kryoptic.
 - `offline-tests.sh`: run CLI tests for Offline signature.

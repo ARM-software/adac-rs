@@ -106,9 +106,9 @@ matrix.
 | EcdsaP521Sha512 | :construction: (1) | :white_check_mark: | :white_check_mark: |
 |  Ed25519Sha512  | :white_check_mark: |        :x:         | :construction: (2) |
 |  Ed448Shake256  | :white_check_mark: |        :x:         | :construction: (2) |
-|  MlDsa44Sha256  | :white_check_mark: | :white_check_mark: |        :x:         |
-|  MlDsa65Sha384  | :white_check_mark: | :white_check_mark: |        :x:         |
-|  MlDsa87Sha512  | :white_check_mark: | :white_check_mark: |        :x:         |
+|  MlDsa44Sha256  | :white_check_mark: | :white_check_mark: | :white_check_mark: (3) |
+|  MlDsa65Sha384  | :white_check_mark: | :white_check_mark: | :white_check_mark: (3) |
+|  MlDsa87Sha512  | :white_check_mark: | :white_check_mark: | :white_check_mark: (3) |
 |  Rsa3072Sha256  | :white_check_mark: | :white_check_mark: | :white_check_mark: |
 |  Rsa4096Sha256  | :white_check_mark: | :white_check_mark: | :white_check_mark: |
 |    SmSm2Sm3     | :white_check_mark: |        :x:         |        :x:         |
@@ -116,6 +116,7 @@ matrix.
 - (1): Only verification works. There is an issue with the 
   [p521](https://crates.io/crates/p521) crate for signature.
 - (2): Implementation untested, `SoftHSM2` does not support `phFlag=1` option for EdDSA signature or verification.
+- (3): Tested with [Kryoptic](https://github.com/latchset/kryoptic). Provider support requires PKCS#11 v3 ML-DSA mechanisms. These ML-DSA PKCS#11 tests are not covered by the default PKCS#11 test harness or CI; run [adac-tests/pkcs11-test-krypoptic.sh](adac-tests/pkcs11-test-krypoptic.sh) against a local Kryoptic installation.
 
 Legend: :white_check_mark: implemented and tested, :construction: planned or
 partially implemented, :x: not currently available.
