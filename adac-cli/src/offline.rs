@@ -141,6 +141,7 @@ pub fn certificate_prepare_command(
         signature_type: kt,
         role: config.role,
         usage: config.usage,
+        policies: config.policies,
         lifecycle: config.lifecycle,
         oem_constraint: config.oem_constraint,
         soc_class: config.soc_class,
@@ -451,6 +452,48 @@ mod tests {
             }
             other => panic!("unexpected error: {other:?}"),
         }
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn certificate_prepare_command_emits_policies() {
+        let dir = tests::make_temp_dir("adac-cli-offline-tests");
+        let config_path = dir.join("cert-config.toml");
+        fs::write(
+            &config_path,
+            r#"
+[defaults]
+version_major = 1
+version_minor = 1
+role = 1
+usage = 0
+policies = 0x34
+lifecycle = 0
+oem_constraint = 0
+soc_class = 0
+soc_id = "0x00000000000000000000000000000000"
+permissions_mask = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = ""
+"#,
+        )
+        .unwrap();
+        let public = tests::write_public_key_from_private(&dir, "EcdsaP384Key-0.pk8", "root.pub");
+        let output = dir.join("prepared.crt");
+
+        certificate_prepare_command(
+            &config_path,
+            &public,
+            &None,
+            &Some(output.clone()),
+            &None,
+            &None,
+        )
+        .unwrap();
+
+        let chain = load_certificates(output).unwrap();
+        let policies = chain[0].header().policies;
+        assert_eq!(policies, 0x34);
 
         let _ = fs::remove_dir_all(dir);
     }

@@ -117,6 +117,7 @@ pub fn certificate_sign_command(
         signature_type: kt,
         role: config.role,
         usage: config.usage,
+        policies: config.policies,
         lifecycle: config.lifecycle,
         oem_constraint: config.oem_constraint,
         soc_class: config.soc_class,
@@ -174,6 +175,7 @@ pub fn certificate_sign_command(
 mod tests {
     use super::*;
     use crate::tests;
+    use adac_crypto::utils::load_certificates;
 
     #[test]
     fn certificate_sign_command_rejects_certificate_not_signed_by_issuer() {
@@ -227,6 +229,54 @@ mod tests {
             }
             other => panic!("unexpected error: {other:?}"),
         }
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn certificate_sign_command_emits_policies() {
+        let dir = tests::make_temp_dir("adac-cli-sign-tests");
+        let config_path = dir.join("cert-config.toml");
+        fs::write(
+            &config_path,
+            r#"
+[defaults]
+version_major = 1
+version_minor = 1
+role = 1
+usage = 0
+policies = 0x12
+lifecycle = 0
+oem_constraint = 0
+soc_class = 0
+soc_id = "0x00000000000000000000000000000000"
+permissions_mask = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = ""
+"#,
+        )
+        .unwrap();
+        let public = tests::write_public_key_from_private(&dir, "EcdsaP384Key-0.pk8", "root.pub");
+        let output = dir.join("root.crt");
+
+        certificate_sign_command(
+            &config_path,
+            &None,
+            &Some(output.clone()),
+            &Some(tests::fixture_path("keys", "EcdsaP384Key-0.pk8")),
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &None,
+            &public,
+            &None,
+        )
+        .unwrap();
+
+        let chain = load_certificates(output).unwrap();
+        let policies = chain[0].header().policies;
+        assert_eq!(policies, 0x12);
 
         let _ = fs::remove_dir_all(dir);
     }

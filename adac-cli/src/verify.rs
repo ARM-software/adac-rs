@@ -111,6 +111,7 @@ pub fn verify_command(
     let mut oem_constraint = header.oem_constraint;
     let mut soc_id = header.soc_id;
     let mut soc_class = header.soc_class;
+    let mut policies = 0u16;
     let mut permissions = header.permissions_mask;
 
     let mut certificates = vec![];
@@ -196,6 +197,7 @@ pub fn verify_command(
         for (i, p) in permissions.iter_mut().enumerate() {
             *p &= header.permissions_mask[i];
         }
+        policies |= header.policies;
 
         match current.verify(pubkey, &crypto) {
             Ok(()) => {}
@@ -265,6 +267,9 @@ pub fn verify_command(
 
     if usage != CertificateUsage::AdacUsageNeutral {
         summary.push(format!("Restricted to usage {:?}", usage));
+    }
+    if policies != 0 {
+        summary.push(format!("Effective policies: 0x{:x}", policies));
     }
 
     let mut effective = [0x00u8; 16];
@@ -362,6 +367,10 @@ role = 1
 lifecycle = 0x3000
 oem_constraint = 0x1234
 
+[root_policy]
+role = 1
+policies = 0x1
+
 [leaf_restricted]
 lifecycle = 0x3000
 oem_constraint = 0x1234
@@ -369,6 +378,9 @@ oem_constraint = 0x1234
 [leaf_conflict]
 lifecycle = 0x4000
 oem_constraint = 0x5678
+
+[leaf_policy]
+policies = 0x2
 "#,
         )
         .unwrap();
@@ -580,6 +592,27 @@ oem_constraint = 0x5678
                 .iter()
                 .any(|error| error == "OEM constraint does not match (0x1234 != 0x5678)")
         }));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn verify_command_reports_effective_policies() {
+        let dir = tests::make_temp_dir("adac-cli-verify-tests");
+        let chain_path = write_signed_chain(&dir, "root_policy", "leaf_policy", "policy.pem");
+
+        let output = verify_command(&chain_path, &None, &None).unwrap();
+
+        let CommandOutput::Verify(report) = output else {
+            panic!("unexpected command output");
+        };
+        assert_eq!(report.error_count, 0);
+        assert!(
+            report
+                .summary
+                .iter()
+                .any(|line| line == "Effective policies: 0x3")
+        );
 
         let _ = fs::remove_dir_all(dir);
     }

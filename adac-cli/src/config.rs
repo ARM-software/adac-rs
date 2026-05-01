@@ -227,7 +227,10 @@ pub fn parse_adac_configuration(
 
     let section = match section {
         Some(s) => s,
-        None => return Ok(c),
+        None => {
+            validate_certificate_config(&c)?;
+            return Ok(c);
+        }
     };
 
     let sec = cfg
@@ -246,7 +249,7 @@ pub fn parse_adac_configuration(
         let major = version_major.as_integer().ok_or(AdacError::Encoding(
             "Value for 'version_major' is not integer".to_string(),
         ))?;
-        if !(0..=1).contains(&major) {
+        if major != 1 {
             return Err(AdacError::Encoding(
                 "Invalid values for version_major".to_string(),
             ));
@@ -372,6 +375,7 @@ pub fn parse_adac_configuration(
         c.extensions = parse_base16_bytes_field(extensions, "'extensions'")?;
     }
 
+    validate_certificate_config(&c)?;
     Ok(c)
 }
 
@@ -461,7 +465,7 @@ pub fn parse_adac_token_configuration(
         let major = version_major.as_integer().ok_or(AdacError::Encoding(
             "Value for 'version_major' is not integer".to_string(),
         ))?;
-        if !(0..=1).contains(&major) {
+        if major != 1 {
             return Err(AdacError::Encoding(
                 "Invalid values for version_major".to_string(),
             ));
@@ -555,6 +559,20 @@ fn parse_optional_extensions(table: &Value, field: &str) -> Result<Vec<u8>, Adac
     parse_base16_bytes_field(extensions, field)
 }
 
+fn validate_certificate_config(config: &AdacCertificateConfig) -> Result<(), AdacError> {
+    if config.format_version.major != 1 || config.format_version.minor > 1 {
+        return Err(AdacError::Encoding(
+            "Invalid values for version".to_string(),
+        ));
+    }
+    if config.format_version == (AdacVersion { major: 1, minor: 0 }) && config.policies != 0 {
+        return Err(AdacError::Encoding(
+            "Value for 'policies' is only valid for version 1.1".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,6 +644,81 @@ extensions = "0102030405060708090a0b0c0d0e0f"
             c.extensions,
             hex::decode("0102030405060708090a0b0c0d0e0f").unwrap()
         );
+    }
+
+    #[test]
+    fn certificate_config_accepts_policies_for_version_1_1() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 1
+role = 3
+usage = 0
+policies = 0x12
+lifecycle = 0
+oem_constraint = 0
+soc_class = 0
+soc_id = "0x00000000000000000000000000000000"
+permissions_mask = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = ""
+"#;
+
+        let c = parse_adac_configuration(config, None).unwrap();
+
+        assert_eq!(c.policies, 0x12);
+    }
+
+    #[test]
+    fn certificate_config_rejects_policies_for_version_1_0() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 0
+role = 3
+usage = 0
+policies = 1
+lifecycle = 0
+oem_constraint = 0
+soc_class = 0
+soc_id = "0x00000000000000000000000000000000"
+permissions_mask = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = ""
+"#;
+
+        let err = parse_adac_configuration(config, None).unwrap_err();
+
+        assert!(matches!(
+            err,
+            AdacError::Encoding(message)
+                if message == "Value for 'policies' is only valid for version 1.1"
+        ));
+    }
+
+    #[test]
+    fn certificate_config_rejects_section_version_major_zero() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 1
+role = 3
+usage = 0
+lifecycle = 0
+oem_constraint = 0
+soc_class = 0
+soc_id = "0x00000000000000000000000000000000"
+permissions_mask = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = ""
+
+[bad]
+version_major = 0
+"#;
+
+        let err = parse_adac_configuration(config, Some("bad".to_string())).unwrap_err();
+
+        assert!(matches!(
+            err,
+            AdacError::Encoding(message) if message == "Invalid values for version_major"
+        ));
     }
 
     #[test]
@@ -706,6 +799,26 @@ requested_permissions = "0XAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
             err,
             AdacError::Encoding(message)
                 if message == "Value for default 'requested_permissions' must start with '0x'"
+        ));
+    }
+
+    #[test]
+    fn token_config_rejects_section_version_major_zero() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 0
+requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+
+[bad]
+version_major = 0
+"#;
+
+        let err = parse_adac_token_configuration(config, Some("bad".to_string())).unwrap_err();
+
+        assert!(matches!(
+            err,
+            AdacError::Encoding(message) if message == "Invalid values for version_major"
         ));
     }
 
