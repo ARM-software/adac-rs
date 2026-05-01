@@ -1,8 +1,6 @@
 // Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-#[cfg(not(feature = "explicit-serialization"))]
-use core::mem::MaybeUninit;
 use core::mem::size_of;
 
 pub mod certificate;
@@ -192,7 +190,7 @@ impl Default for CertificateHeader {
 }
 
 impl CertificateHeader {
-    pub const WIRE_SIZE: usize = 52;
+    pub const SIZE: usize = 52;
 
     pub fn validate(&self) -> Result<(), AdacError> {
         let version = self.format_version;
@@ -221,9 +219,8 @@ impl CertificateHeader {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub(crate) fn from_bytes(bytes: &[u8]) -> Result<Self, AdacError> {
-        if bytes.len() != Self::WIRE_SIZE {
+        if bytes.len() != Self::SIZE {
             return Err(AdacError::InvalidLength);
         }
 
@@ -258,9 +255,8 @@ impl CertificateHeader {
         Ok(header)
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn to_bytes(self) -> [u8; Self::WIRE_SIZE] {
-        let mut bytes = [0u8; Self::WIRE_SIZE];
+    pub(crate) fn to_bytes(self) -> [u8; Self::SIZE] {
+        let mut bytes = [0u8; Self::SIZE];
         bytes[0] = self.format_version.major;
         bytes[1] = self.format_version.minor;
         bytes[2] = self.signature_type as u8;
@@ -320,7 +316,7 @@ impl Default for TokenHeader {
 }
 
 impl TokenHeader {
-    pub const WIRE_SIZE: usize = 24;
+    pub const SIZE: usize = 24;
 
     pub fn validate(&self) -> Result<(), AdacError> {
         if self.format_version.major != 1 || self.format_version.minor > 1 {
@@ -334,9 +330,8 @@ impl TokenHeader {
         Ok(())
     }
 
-    #[allow(dead_code)]
     pub(crate) fn from_bytes(bytes: &[u8]) -> Result<Self, AdacError> {
-        if bytes.len() != Self::WIRE_SIZE {
+        if bytes.len() != Self::SIZE {
             return Err(AdacError::InvalidLength);
         }
 
@@ -358,9 +353,8 @@ impl TokenHeader {
         Ok(header)
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn to_bytes(self) -> [u8; Self::WIRE_SIZE] {
-        let mut bytes = [0u8; Self::WIRE_SIZE];
+    pub(crate) fn to_bytes(self) -> [u8; Self::SIZE] {
+        let mut bytes = [0u8; Self::SIZE];
         bytes[0] = self.format_version.major;
         bytes[1] = self.format_version.minor;
         bytes[2] = self.signature_type as u8;
@@ -395,7 +389,7 @@ pub struct AdacTlvHeader {
 }
 
 impl AdacTlvHeader {
-    pub const WIRE_SIZE: usize = 8;
+    pub const SIZE: usize = 8;
 
     fn new(type_id: u16, length: u32) -> Self {
         Self {
@@ -414,7 +408,7 @@ impl AdacTlvHeader {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, AdacError> {
-        if bytes.len() != Self::WIRE_SIZE {
+        if bytes.len() != Self::SIZE {
             return Err(AdacError::InvalidLength);
         }
 
@@ -432,26 +426,8 @@ impl AdacTlvHeader {
     }
 }
 
-#[cfg(feature = "explicit-serialization")]
 pub fn decode_tlv_header(bytes: &[u8]) -> Result<AdacTlvHeader, AdacError> {
     AdacTlvHeader::from_bytes(bytes)
-}
-
-#[cfg(not(feature = "explicit-serialization"))]
-pub fn decode_tlv_header(bytes: &[u8]) -> Result<AdacTlvHeader, AdacError> {
-    if bytes.len() != AdacTlvHeader::WIRE_SIZE {
-        return Err(AdacError::InvalidLength);
-    }
-
-    Ok(unsafe {
-        let mut h = MaybeUninit::<AdacTlvHeader>::uninit();
-        core::ptr::copy_nonoverlapping(
-            bytes.as_ptr(),
-            h.as_mut_ptr() as *mut u8,
-            AdacTlvHeader::WIRE_SIZE,
-        );
-        h.assume_init()
-    })
 }
 
 pub fn validate_format_version(version: AdacVersion) -> Result<(), AdacError> {
@@ -700,7 +676,7 @@ mod tests {
 
     #[test]
     fn certificate_from_bytes_rejects_unsupported_version() {
-        let mut certificate = vec![0u8; CertificateHeader::WIRE_SIZE];
+        let mut certificate = vec![0u8; CertificateHeader::SIZE];
         certificate[0] = 1;
         certificate[1] = 2;
         certificate[2] = KeyOptions::EcdsaP256Sha256 as u8;
@@ -716,7 +692,7 @@ mod tests {
 
     #[test]
     fn certificate_from_bytes_rejects_policies_for_version_1_0() {
-        let mut certificate = vec![0u8; CertificateHeader::WIRE_SIZE];
+        let mut certificate = vec![0u8; CertificateHeader::SIZE];
         certificate[0] = 1;
         certificate[1] = 0;
         certificate[2] = KeyOptions::EcdsaP256Sha256 as u8;
@@ -733,7 +709,7 @@ mod tests {
 
     #[test]
     fn token_from_bytes_rejects_nonzero_reserved_field() {
-        let mut token = vec![0u8; TokenHeader::WIRE_SIZE];
+        let mut token = vec![0u8; TokenHeader::SIZE];
         token[0] = 1;
         token[1] = 0;
         token[2] = KeyOptions::EcdsaP256Sha256 as u8;
@@ -748,7 +724,7 @@ mod tests {
 
     #[test]
     fn token_from_bytes_rejects_unsupported_version() {
-        let mut token = vec![0u8; TokenHeader::WIRE_SIZE];
+        let mut token = vec![0u8; TokenHeader::SIZE];
         token[0] = 1;
         token[1] = 2;
         token[2] = KeyOptions::EcdsaP256Sha256 as u8;
@@ -759,7 +735,6 @@ mod tests {
         ));
     }
 
-    #[cfg(feature = "explicit-serialization")]
     #[test]
     fn certificate_header_serialization_is_little_endian() {
         let soc_id = *b"0123456789ABCDEF";
@@ -781,7 +756,7 @@ mod tests {
 
         let bytes = header.to_bytes();
 
-        assert_eq!(bytes.len(), CertificateHeader::WIRE_SIZE);
+        assert_eq!(bytes.len(), CertificateHeader::SIZE);
         assert_eq!(&bytes[0..8], &[1, 1, 0x0a, 0x0a, 1, 2, 0x34, 0x12]);
         assert_eq!(&bytes[8..12], &[0x67, 0x45, 0xab, 0x89]);
         assert_eq!(&bytes[12..16], &[0x04, 0x03, 0x02, 0x01]);
@@ -811,7 +786,6 @@ mod tests {
         assert_eq!(decoded_permissions_mask, permissions_mask);
     }
 
-    #[cfg(feature = "explicit-serialization")]
     #[test]
     fn token_header_serialization_is_little_endian() {
         let requested_permissions = *b"0123456789ABCDEF";
@@ -825,7 +799,7 @@ mod tests {
 
         let bytes = header.to_bytes();
 
-        assert_eq!(bytes.len(), TokenHeader::WIRE_SIZE);
+        assert_eq!(bytes.len(), TokenHeader::SIZE);
         assert_eq!(&bytes[0..8], &[1, 1, 0x0d, 0, 0x04, 0x03, 0x02, 0x01]);
         assert_eq!(&bytes[8..24], &requested_permissions);
 
@@ -839,7 +813,6 @@ mod tests {
         assert_eq!(decoded_requested_permissions, requested_permissions);
     }
 
-    #[cfg(feature = "explicit-serialization")]
     #[test]
     fn tlv_header_serialization_rejects_nonzero_reserved_field() {
         let bytes = [1, 0, 1, 2, 4, 0, 0, 0];

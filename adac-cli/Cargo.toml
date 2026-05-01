@@ -8,10 +8,6 @@ version.workspace = true
 edition.workspace = true
 license = "BSD-3-Clause"
 
-[features]
-default = []
-explicit-serialization = ["adac/explicit-serialization"]
-
 [dependencies]
 adac = { path = "../adac" }
 adac-crypto = { path = "../adac-crypto" }
