@@ -15,7 +15,6 @@ use p384::NistP384;
 use p521::NistP521;
 use pkcs8::{PrivateKeyInfo, SecretDocument};
 use sec1::DecodeEcPrivateKey;
-use std::mem::MaybeUninit;
 use std::{fs, path::Path};
 
 pub fn load_certificates<P: AsRef<Path>>(path: P) -> Result<Vec<AdacCertificate>, AdacError> {
@@ -44,15 +43,7 @@ pub fn read_certificates(contents: String) -> Result<Vec<AdacCertificate>, AdacE
             ));
         }
         let (tlv_h, tmp) = binary.split_at_mut(8);
-        let tlv_header = unsafe {
-            let mut h = MaybeUninit::<adac::AdacTlvHeader>::uninit();
-            core::ptr::copy_nonoverlapping(
-                tlv_h.as_ptr(),
-                h.as_mut_ptr() as *mut u8,
-                size_of::<adac::AdacTlvHeader>(),
-            );
-            h.assume_init()
-        };
+        let tlv_header = adac::decode_tlv_header(tlv_h)?;
 
         // Check if type is ADAC Certificate
         if tlv_header.type_id != 0x201 {

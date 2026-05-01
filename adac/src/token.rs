@@ -3,7 +3,10 @@
 
 use crate::traits::AdacCryptoProvider;
 use crate::{AdacError, KeyOptions, TokenHeader};
-use std::mem::{MaybeUninit, offset_of};
+#[cfg(not(feature = "explicit-serialization"))]
+use std::mem::MaybeUninit;
+#[cfg(not(feature = "explicit-serialization"))]
+use std::mem::offset_of;
 
 pub struct AdacToken {
     token: Vec<u8>,
@@ -61,30 +64,15 @@ pub fn adac_sizes_from_crypto(key_type: KeyOptions) -> Result<(usize, usize), Ad
 }
 
 impl AdacToken {
-    const HEADER_SIZE: usize = core::mem::size_of::<TokenHeader>();
+    const HEADER_SIZE: usize = TokenHeader::WIRE_SIZE;
 
     pub fn from_bytes(token: Vec<u8>) -> Result<Self, AdacError> {
         if token.len() < Self::HEADER_SIZE {
             return Err(AdacError::InvalidLength);
         }
 
-        let header = &token[..Self::HEADER_SIZE];
-        let key_type = match KeyOptions::try_from(header[offset_of!(TokenHeader, signature_type)]) {
-            Ok(k) => k,
-            Err(()) => return Err(AdacError::InconsistentCrypto),
-        };
-        let header = unsafe {
-            let mut h = MaybeUninit::<TokenHeader>::uninit();
-            core::ptr::copy_nonoverlapping(
-                token.as_ptr(),
-                h.as_mut_ptr() as *mut u8,
-                Self::HEADER_SIZE,
-            );
-            h.assume_init()
-        };
-        if key_type != header.signature_type {
-            return Err(AdacError::InconsistentCrypto);
-        }
+        let header = decode_header(&token[..Self::HEADER_SIZE])?;
+        let key_type = header.signature_type;
 
         let (hash_size, sig_size) = crate::token::adac_sizes_from_crypto(key_type)?;
 
@@ -149,6 +137,7 @@ impl AdacToken {
         if key_type != h.signature_type {
             return Err(AdacError::InconsistentCrypto);
         }
+        h.validate()?;
         crate::validate_token_challenge(challenge)?;
 
         let extension_hash = match extensions {
@@ -167,19 +156,14 @@ impl AdacToken {
         }
 
         let mut token = Vec::<u8>::with_capacity(
-            size_of::<TokenHeader>() + hash_size + sig_size + h.extensions_bytes as usize,
+            TokenHeader::WIRE_SIZE + hash_size + sig_size + h.extensions_bytes as usize,
         );
 
-        token.extend_from_slice(unsafe {
-            ::core::slice::from_raw_parts(
-                &h as *const TokenHeader as *const u8,
-                size_of::<TokenHeader>(),
-            )
-        });
+        token.extend_from_slice(encode_header(h).as_slice());
         token.extend_from_slice(extension_hash.as_slice());
 
         let mut tbs =
-            Vec::<u8>::with_capacity(size_of::<TokenHeader>() + hash_size + challenge.len());
+            Vec::<u8>::with_capacity(TokenHeader::WIRE_SIZE + hash_size + challenge.len());
         tbs.extend_from_slice(token.as_slice());
         tbs.extend_from_slice(challenge);
 
@@ -225,4 +209,56 @@ impl AdacToken {
             self.get_signature(),
         )
     }
+}
+
+#[cfg(feature = "explicit-serialization")]
+fn decode_header(bytes: &[u8]) -> Result<TokenHeader, AdacError> {
+    TokenHeader::from_bytes(bytes)
+}
+
+#[cfg(not(feature = "explicit-serialization"))]
+fn decode_header(bytes: &[u8]) -> Result<TokenHeader, AdacError> {
+    if KeyOptions::try_from(bytes[offset_of!(TokenHeader, signature_type)]).is_err() {
+        return Err(AdacError::InconsistentCrypto);
+    }
+    let format_version = crate::AdacVersion {
+        major: bytes[offset_of!(TokenHeader, format_version)],
+        minor: bytes[offset_of!(TokenHeader, format_version) + 1],
+    };
+    crate::validate_format_version(format_version)?;
+    if bytes[offset_of!(TokenHeader, _reserved)] != 0 {
+        return Err(AdacError::Encoding(
+            "Invalid nonzero token reserved field".to_string(),
+        ));
+    }
+
+    let header = unsafe {
+        let mut h = MaybeUninit::<TokenHeader>::uninit();
+        core::ptr::copy_nonoverlapping(
+            bytes.as_ptr(),
+            h.as_mut_ptr() as *mut u8,
+            TokenHeader::WIRE_SIZE,
+        );
+        h.assume_init()
+    };
+    header.validate()?;
+    Ok(header)
+}
+
+#[cfg(feature = "explicit-serialization")]
+fn encode_header(header: TokenHeader) -> [u8; TokenHeader::WIRE_SIZE] {
+    header.to_bytes()
+}
+
+#[cfg(not(feature = "explicit-serialization"))]
+fn encode_header(header: TokenHeader) -> [u8; TokenHeader::WIRE_SIZE] {
+    let mut bytes = [0u8; TokenHeader::WIRE_SIZE];
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            &header as *const TokenHeader as *const u8,
+            bytes.as_mut_ptr(),
+            TokenHeader::WIRE_SIZE,
+        );
+    }
+    bytes
 }

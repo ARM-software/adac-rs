@@ -1,6 +1,8 @@
 // Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
+#[cfg(not(feature = "explicit-serialization"))]
+use core::mem::MaybeUninit;
 use core::mem::size_of;
 
 pub mod certificate;
@@ -127,7 +129,31 @@ impl TryFrom<u8> for CertificateUsage {
     }
 }
 
-/* Certificate header */
+/// ADAC certificate header serialized layout.
+///
+/// Multi-byte integer fields are encoded little-endian by the explicit
+/// serialization helpers.
+///
+/// ```text
+/// +--------+------+------------------+-------------------------------+
+/// | Offset | Size | Field            | Encoding                      |
+/// +--------+------+------------------+-------------------------------+
+/// |      0 |    2 | format_version   | major: u8, minor: u8          |
+/// |      2 |    1 | signature_type   | KeyOptions discriminant       |
+/// |      3 |    1 | key_type         | KeyOptions discriminant       |
+/// |      4 |    1 | role             | CertificateRole discriminant  |
+/// |      5 |    1 | usage            | CertificateUsage discriminant |
+/// |      6 |    2 | policies         | u16 little-endian             |
+/// |      8 |    2 | lifecycle        | u16 little-endian             |
+/// |     10 |    2 | oem_constraint   | u16 little-endian             |
+/// |     12 |    4 | extensions_bytes | u32 little-endian             |
+/// |     16 |    4 | soc_class        | u32 little-endian             |
+/// |     20 |   16 | soc_id           | 128-bit value                 |
+/// |     36 |   16 | permissions_mask | 128-bit value                 |
+/// +--------+------+------------------+-------------------------------+
+/// | Total  |   52 |                  |                               |
+/// +--------+------+------------------+-------------------------------+
+/// ```
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 pub struct CertificateHeader {
@@ -165,6 +191,111 @@ impl Default for CertificateHeader {
     }
 }
 
+impl CertificateHeader {
+    pub const WIRE_SIZE: usize = 52;
+
+    pub fn validate(&self) -> Result<(), AdacError> {
+        let version = self.format_version;
+        if version.major != 1 || version.minor > 1 {
+            return Err(AdacError::InconsistentVersion);
+        }
+
+        if self.key_type != self.signature_type {
+            return Err(AdacError::InconsistentCrypto);
+        }
+
+        if self.format_version == (AdacVersion { major: 1, minor: 0 }) {
+            match self.key_type {
+                KeyOptions::EcdsaP384Sha384
+                | KeyOptions::MlDsa44Sha256
+                | KeyOptions::MlDsa65Sha384
+                | KeyOptions::MlDsa87Sha512 => return Err(AdacError::InconsistentVersion),
+                _ => {}
+            }
+
+            if self.policies != 0x0 {
+                return Err(AdacError::InconsistentVersion);
+            }
+        }
+
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Result<Self, AdacError> {
+        if bytes.len() != Self::WIRE_SIZE {
+            return Err(AdacError::InvalidLength);
+        }
+
+        let mut soc_id = [0u8; 16];
+        soc_id.copy_from_slice(&bytes[20..36]);
+        let mut permissions_mask = [0u8; 16];
+        permissions_mask.copy_from_slice(&bytes[36..52]);
+
+        let header = Self {
+            format_version: AdacVersion {
+                major: bytes[0],
+                minor: bytes[1],
+            },
+            signature_type: KeyOptions::try_from(bytes[2])
+                .map_err(|_| AdacError::InconsistentCrypto)?,
+            key_type: KeyOptions::try_from(bytes[3]).map_err(|_| AdacError::InconsistentCrypto)?,
+            role: CertificateRole::try_from(bytes[4]).map_err(|_| {
+                AdacError::Encoding("Invalid value for certificate role".to_string())
+            })?,
+            usage: CertificateUsage::try_from(bytes[5]).map_err(|_| {
+                AdacError::Encoding("Invalid value for certificate usage".to_string())
+            })?,
+            policies: u16::from_le_bytes([bytes[6], bytes[7]]),
+            lifecycle: u16::from_le_bytes([bytes[8], bytes[9]]),
+            oem_constraint: u16::from_le_bytes([bytes[10], bytes[11]]),
+            extensions_bytes: u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]),
+            soc_class: u32::from_le_bytes([bytes[16], bytes[17], bytes[18], bytes[19]]),
+            soc_id,
+            permissions_mask,
+        };
+        header.validate()?;
+        Ok(header)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn to_bytes(self) -> [u8; Self::WIRE_SIZE] {
+        let mut bytes = [0u8; Self::WIRE_SIZE];
+        bytes[0] = self.format_version.major;
+        bytes[1] = self.format_version.minor;
+        bytes[2] = self.signature_type as u8;
+        bytes[3] = self.key_type as u8;
+        bytes[4] = self.role as u8;
+        bytes[5] = self.usage as u8;
+        bytes[6..8].copy_from_slice(&self.policies.to_le_bytes());
+        bytes[8..10].copy_from_slice(&self.lifecycle.to_le_bytes());
+        bytes[10..12].copy_from_slice(&self.oem_constraint.to_le_bytes());
+        bytes[12..16].copy_from_slice(&self.extensions_bytes.to_le_bytes());
+        bytes[16..20].copy_from_slice(&self.soc_class.to_le_bytes());
+        bytes[20..36].copy_from_slice(&self.soc_id);
+        bytes[36..52].copy_from_slice(&self.permissions_mask);
+        bytes
+    }
+}
+
+/// ADAC token header serialized layout.
+///
+/// Multi-byte integer fields are encoded little-endian by the explicit
+/// serialization helpers.
+///
+/// ```text
+/// +--------+------+-----------------------+--------------------------+
+/// | Offset | Size | Field                 | Encoding                 |
+/// +--------+------+-----------------------+--------------------------+
+/// |      0 |    2 | format_version        | major: u8, minor: u8     |
+/// |      2 |    1 | signature_type        | KeyOptions discriminant  |
+/// |      3 |    1 | _reserved             | must be zero             |
+/// |      4 |    4 | extensions_bytes      | u32 little-endian        |
+/// |      8 |   16 | requested_permissions | 128-bit value            |
+/// +--------+------+-----------------------+--------------------------+
+/// | Total  |   24 |                       |                          |
+/// +--------+------+-----------------------+--------------------------+
+/// ```
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 pub struct TokenHeader {
@@ -188,6 +319,73 @@ impl Default for TokenHeader {
     }
 }
 
+impl TokenHeader {
+    pub const WIRE_SIZE: usize = 24;
+
+    pub fn validate(&self) -> Result<(), AdacError> {
+        if self.format_version.major != 1 || self.format_version.minor > 1 {
+            return Err(AdacError::InconsistentVersion);
+        }
+        if self._reserved != 0 {
+            return Err(AdacError::Encoding(
+                "Invalid nonzero token reserved field".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Result<Self, AdacError> {
+        if bytes.len() != Self::WIRE_SIZE {
+            return Err(AdacError::InvalidLength);
+        }
+
+        let mut requested_permissions = [0u8; 16];
+        requested_permissions.copy_from_slice(&bytes[8..24]);
+
+        let header = Self {
+            format_version: AdacVersion {
+                major: bytes[0],
+                minor: bytes[1],
+            },
+            signature_type: KeyOptions::try_from(bytes[2])
+                .map_err(|_| AdacError::InconsistentCrypto)?,
+            _reserved: bytes[3],
+            extensions_bytes: u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+            requested_permissions,
+        };
+        header.validate()?;
+        Ok(header)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn to_bytes(self) -> [u8; Self::WIRE_SIZE] {
+        let mut bytes = [0u8; Self::WIRE_SIZE];
+        bytes[0] = self.format_version.major;
+        bytes[1] = self.format_version.minor;
+        bytes[2] = self.signature_type as u8;
+        bytes[3] = self._reserved;
+        bytes[4..8].copy_from_slice(&self.extensions_bytes.to_le_bytes());
+        bytes[8..24].copy_from_slice(&self.requested_permissions);
+        bytes
+    }
+}
+
+/// ADAC TLV container header serialized layout.
+///
+/// Multi-byte integer fields are encoded little-endian.
+///
+/// ```text
+/// +--------+------+-----------+-------------------+
+/// | Offset | Size | Field     | Encoding          |
+/// +--------+------+-----------+-------------------+
+/// |      0 |    2 | _reserved | must be zero      |
+/// |      2 |    2 | type_id   | u16 little-endian |
+/// |      4 |    4 | length    | u32 little-endian |
+/// +--------+------+-----------+-------------------+
+/// | Total  |    8 |           |                   |
+/// +--------+------+-----------+-------------------+
+/// ```
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 pub struct AdacTlvHeader {
@@ -197,6 +395,8 @@ pub struct AdacTlvHeader {
 }
 
 impl AdacTlvHeader {
+    pub const WIRE_SIZE: usize = 8;
+
     fn new(type_id: u16, length: u32) -> Self {
         Self {
             _reserved: 0,
@@ -205,13 +405,68 @@ impl AdacTlvHeader {
         }
     }
 
-    fn to_le_bytes(self) -> [u8; size_of::<Self>()] {
+    fn to_bytes(self) -> [u8; size_of::<Self>()] {
         let mut bytes = [0u8; size_of::<Self>()];
         bytes[..2].copy_from_slice(&self._reserved.to_le_bytes());
         bytes[2..4].copy_from_slice(&self.type_id.to_le_bytes());
         bytes[4..8].copy_from_slice(&self.length.to_le_bytes());
         bytes
     }
+
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, AdacError> {
+        if bytes.len() != Self::WIRE_SIZE {
+            return Err(AdacError::InvalidLength);
+        }
+
+        let header = Self {
+            _reserved: u16::from_le_bytes([bytes[0], bytes[1]]),
+            type_id: u16::from_le_bytes([bytes[2], bytes[3]]),
+            length: u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+        };
+        if header._reserved != 0 {
+            return Err(AdacError::Encoding(
+                "Invalid nonzero TLV reserved field".to_string(),
+            ));
+        }
+        Ok(header)
+    }
+}
+
+#[cfg(feature = "explicit-serialization")]
+pub fn decode_tlv_header(bytes: &[u8]) -> Result<AdacTlvHeader, AdacError> {
+    AdacTlvHeader::from_bytes(bytes)
+}
+
+#[cfg(not(feature = "explicit-serialization"))]
+pub fn decode_tlv_header(bytes: &[u8]) -> Result<AdacTlvHeader, AdacError> {
+    if bytes.len() != AdacTlvHeader::WIRE_SIZE {
+        return Err(AdacError::InvalidLength);
+    }
+
+    Ok(unsafe {
+        let mut h = MaybeUninit::<AdacTlvHeader>::uninit();
+        core::ptr::copy_nonoverlapping(
+            bytes.as_ptr(),
+            h.as_mut_ptr() as *mut u8,
+            AdacTlvHeader::WIRE_SIZE,
+        );
+        h.assume_init()
+    })
+}
+
+pub fn validate_format_version(version: AdacVersion) -> Result<(), AdacError> {
+    if version.major != 1 || version.minor > 1 {
+        return Err(AdacError::InconsistentVersion);
+    }
+    Ok(())
+}
+
+pub fn validate_certificate_version(version: AdacVersion, policies: u16) -> Result<(), AdacError> {
+    validate_format_version(version)?;
+    if version == (AdacVersion { major: 1, minor: 0 }) && policies != 0 {
+        return Err(AdacError::InconsistentVersion);
+    }
+    Ok(())
 }
 
 pub fn tlv_wrap(type_id: u16, content: Vec<u8>) -> Vec<u8> {
@@ -222,7 +477,7 @@ pub fn tlv_wrap(type_id: u16, content: Vec<u8>) -> Vec<u8> {
         4 - (content.len() % 4)
     };
     let mut tlv = Vec::<u8>::with_capacity(size_of::<AdacTlvHeader>() + content.len() + pad);
-    tlv.extend_from_slice(&header.to_le_bytes());
+    tlv.extend_from_slice(&header.to_bytes());
     tlv.extend_from_slice(content.as_slice());
     if pad != 0 {
         tlv.extend_from_slice(&vec![0u8; pad]);
@@ -413,6 +668,186 @@ mod tests {
         assert!(matches!(
             validate_public_key_padding(KeyOptions::Ed448Shake256, &public_key),
             Err(AdacError::InvalidLength)
+        ));
+    }
+
+    #[test]
+    fn certificate_header_rejects_policies_for_version_1_0() {
+        let header = CertificateHeader {
+            policies: 1,
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            header.validate(),
+            Err(AdacError::InconsistentVersion)
+        ));
+    }
+
+    #[test]
+    fn token_header_rejects_nonzero_reserved_field() {
+        let header = TokenHeader {
+            _reserved: 1,
+            ..Default::default()
+        };
+
+        assert!(matches!(
+            header.validate(),
+            Err(AdacError::Encoding(message))
+                if message == "Invalid nonzero token reserved field"
+        ));
+    }
+
+    #[test]
+    fn certificate_from_bytes_rejects_unsupported_version() {
+        let mut certificate = vec![0u8; CertificateHeader::WIRE_SIZE];
+        certificate[0] = 1;
+        certificate[1] = 2;
+        certificate[2] = KeyOptions::EcdsaP256Sha256 as u8;
+        certificate[3] = KeyOptions::EcdsaP256Sha256 as u8;
+        certificate[4] = CertificateRole::AdacCrtRoleLeaf as u8;
+        certificate[5] = CertificateUsage::AdacUsageNeutral as u8;
+
+        assert!(matches!(
+            crate::certificate::AdacCertificate::from_bytes(certificate),
+            Err(AdacError::InconsistentVersion)
+        ));
+    }
+
+    #[test]
+    fn certificate_from_bytes_rejects_policies_for_version_1_0() {
+        let mut certificate = vec![0u8; CertificateHeader::WIRE_SIZE];
+        certificate[0] = 1;
+        certificate[1] = 0;
+        certificate[2] = KeyOptions::EcdsaP256Sha256 as u8;
+        certificate[3] = KeyOptions::EcdsaP256Sha256 as u8;
+        certificate[4] = CertificateRole::AdacCrtRoleLeaf as u8;
+        certificate[5] = CertificateUsage::AdacUsageNeutral as u8;
+        certificate[6..8].copy_from_slice(&1u16.to_le_bytes());
+
+        assert!(matches!(
+            crate::certificate::AdacCertificate::from_bytes(certificate),
+            Err(AdacError::InconsistentVersion)
+        ));
+    }
+
+    #[test]
+    fn token_from_bytes_rejects_nonzero_reserved_field() {
+        let mut token = vec![0u8; TokenHeader::WIRE_SIZE];
+        token[0] = 1;
+        token[1] = 0;
+        token[2] = KeyOptions::EcdsaP256Sha256 as u8;
+        token[3] = 1;
+
+        assert!(matches!(
+            crate::token::AdacToken::from_bytes(token),
+            Err(AdacError::Encoding(message))
+                if message == "Invalid nonzero token reserved field"
+        ));
+    }
+
+    #[test]
+    fn token_from_bytes_rejects_unsupported_version() {
+        let mut token = vec![0u8; TokenHeader::WIRE_SIZE];
+        token[0] = 1;
+        token[1] = 2;
+        token[2] = KeyOptions::EcdsaP256Sha256 as u8;
+
+        assert!(matches!(
+            crate::token::AdacToken::from_bytes(token),
+            Err(AdacError::InconsistentVersion)
+        ));
+    }
+
+    #[cfg(feature = "explicit-serialization")]
+    #[test]
+    fn certificate_header_serialization_is_little_endian() {
+        let soc_id = *b"0123456789ABCDEF";
+        let permissions_mask = *b"fedcba9876543210";
+        let header = CertificateHeader {
+            format_version: AdacVersion { major: 1, minor: 1 },
+            signature_type: KeyOptions::EcdsaP384Sha384,
+            key_type: KeyOptions::EcdsaP384Sha384,
+            role: CertificateRole::AdacCrtRoleRoot,
+            usage: CertificateUsage::AdacUsageRma,
+            policies: 0x1234,
+            lifecycle: 0x4567,
+            oem_constraint: 0x89ab,
+            extensions_bytes: 0x01020304,
+            soc_class: 0x05060708,
+            soc_id,
+            permissions_mask,
+        };
+
+        let bytes = header.to_bytes();
+
+        assert_eq!(bytes.len(), CertificateHeader::WIRE_SIZE);
+        assert_eq!(&bytes[0..8], &[1, 1, 0x0a, 0x0a, 1, 2, 0x34, 0x12]);
+        assert_eq!(&bytes[8..12], &[0x67, 0x45, 0xab, 0x89]);
+        assert_eq!(&bytes[12..16], &[0x04, 0x03, 0x02, 0x01]);
+        assert_eq!(&bytes[16..20], &[0x08, 0x07, 0x06, 0x05]);
+        assert_eq!(&bytes[20..36], &soc_id);
+        assert_eq!(&bytes[36..52], &permissions_mask);
+
+        let decoded = CertificateHeader::from_bytes(&bytes).unwrap();
+        let policies = decoded.policies;
+        let lifecycle = decoded.lifecycle;
+        let oem_constraint = decoded.oem_constraint;
+        let extensions_bytes = decoded.extensions_bytes;
+        let soc_class = decoded.soc_class;
+        let decoded_soc_id = decoded.soc_id;
+        let decoded_permissions_mask = decoded.permissions_mask;
+        assert_eq!(decoded.format_version, AdacVersion { major: 1, minor: 1 });
+        assert_eq!(decoded.signature_type, KeyOptions::EcdsaP384Sha384);
+        assert_eq!(decoded.key_type, KeyOptions::EcdsaP384Sha384);
+        assert_eq!(decoded.role, CertificateRole::AdacCrtRoleRoot);
+        assert_eq!(decoded.usage, CertificateUsage::AdacUsageRma);
+        assert_eq!(policies, 0x1234);
+        assert_eq!(lifecycle, 0x4567);
+        assert_eq!(oem_constraint, 0x89ab);
+        assert_eq!(extensions_bytes, 0x01020304);
+        assert_eq!(soc_class, 0x05060708);
+        assert_eq!(decoded_soc_id, soc_id);
+        assert_eq!(decoded_permissions_mask, permissions_mask);
+    }
+
+    #[cfg(feature = "explicit-serialization")]
+    #[test]
+    fn token_header_serialization_is_little_endian() {
+        let requested_permissions = *b"0123456789ABCDEF";
+        let header = TokenHeader {
+            format_version: AdacVersion { major: 1, minor: 1 },
+            signature_type: KeyOptions::MlDsa87Sha512,
+            _reserved: 0,
+            extensions_bytes: 0x01020304,
+            requested_permissions,
+        };
+
+        let bytes = header.to_bytes();
+
+        assert_eq!(bytes.len(), TokenHeader::WIRE_SIZE);
+        assert_eq!(&bytes[0..8], &[1, 1, 0x0d, 0, 0x04, 0x03, 0x02, 0x01]);
+        assert_eq!(&bytes[8..24], &requested_permissions);
+
+        let decoded = TokenHeader::from_bytes(&bytes).unwrap();
+        let extensions_bytes = decoded.extensions_bytes;
+        let decoded_requested_permissions = decoded.requested_permissions;
+        assert_eq!(decoded.format_version, AdacVersion { major: 1, minor: 1 });
+        assert_eq!(decoded.signature_type, KeyOptions::MlDsa87Sha512);
+        assert_eq!(decoded._reserved, 0);
+        assert_eq!(extensions_bytes, 0x01020304);
+        assert_eq!(decoded_requested_permissions, requested_permissions);
+    }
+
+    #[cfg(feature = "explicit-serialization")]
+    #[test]
+    fn tlv_header_serialization_rejects_nonzero_reserved_field() {
+        let bytes = [1, 0, 1, 2, 4, 0, 0, 0];
+
+        assert!(matches!(
+            AdacTlvHeader::from_bytes(&bytes),
+            Err(AdacError::Encoding(message))
+                if message == "Invalid nonzero TLV reserved field"
         ));
     }
 }

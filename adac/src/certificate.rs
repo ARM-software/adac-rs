@@ -1,11 +1,15 @@
 // Copyright (c) 2019-2025, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
+#[cfg(not(feature = "explicit-serialization"))]
+use crate::AdacVersion;
 use crate::traits::AdacCryptoProvider;
-use crate::{
-    AdacError, AdacVersion, CertificateHeader, CertificateRole, CertificateUsage, KeyOptions,
-};
-use core::mem::{MaybeUninit, size_of};
+use crate::{AdacError, CertificateHeader, KeyOptions};
+#[cfg(not(feature = "explicit-serialization"))]
+use crate::{CertificateRole, CertificateUsage};
+#[cfg(not(feature = "explicit-serialization"))]
+use core::mem::MaybeUninit;
+#[cfg(not(feature = "explicit-serialization"))]
 use std::mem::offset_of;
 
 pub struct AdacCertificate {
@@ -80,45 +84,15 @@ pub fn adac_sizes_from_crypto(key_type: KeyOptions) -> Result<(usize, usize, usi
 }
 
 impl AdacCertificate {
-    const HEADER_SIZE: usize = core::mem::size_of::<CertificateHeader>();
+    const HEADER_SIZE: usize = CertificateHeader::WIRE_SIZE;
 
     pub fn from_bytes(certificate: Vec<u8>) -> Result<Self, AdacError> {
         if certificate.len() < Self::HEADER_SIZE {
             return Err(AdacError::InvalidLength);
         }
 
-        let header = &certificate[..Self::HEADER_SIZE];
-        if header[offset_of!(CertificateHeader, key_type)]
-            != header[offset_of!(CertificateHeader, signature_type)]
-        {
-            return Err(AdacError::InconsistentCrypto);
-        }
-        let key_type = match KeyOptions::try_from(header[offset_of!(CertificateHeader, key_type)]) {
-            Ok(k) => k,
-            Err(()) => return Err(AdacError::InconsistentCrypto),
-        };
-        if CertificateRole::try_from(header[offset_of!(CertificateHeader, role)]).is_err() {
-            return Err(AdacError::Encoding(
-                "Invalid value for certificate role".to_string(),
-            ));
-        }
-        if CertificateUsage::try_from(header[offset_of!(CertificateHeader, usage)]).is_err() {
-            return Err(AdacError::Encoding(
-                "Invalid value for certificate usage".to_string(),
-            ));
-        }
-        let header = unsafe {
-            let mut h = MaybeUninit::<CertificateHeader>::uninit();
-            core::ptr::copy_nonoverlapping(
-                certificate.as_ptr(),
-                h.as_mut_ptr() as *mut u8,
-                Self::HEADER_SIZE,
-            );
-            h.assume_init()
-        };
-        if key_type != header.key_type || key_type != header.signature_type {
-            return Err(AdacError::InconsistentCrypto);
-        }
+        let header = decode_header(&certificate[..Self::HEADER_SIZE])?;
+        let key_type = header.key_type;
 
         let (pubkey_size, hash_size, sig_size) = adac_sizes_from_crypto(key_type)?;
 
@@ -160,61 +134,40 @@ impl AdacCertificate {
         extensions: Option<&[u8]>,
         provider: &mut dyn AdacCryptoProvider,
     ) -> Result<Self, AdacError> {
-        let mut h = header;
-        let (pubkey_size, hash_size, sig_size) = adac_sizes_from_crypto(key_type)?;
-
-        if key_type != h.key_type || key_type != h.signature_type {
+        header.validate()?;
+        let mut header = header;
+        if key_type != header.key_type {
             return Err(AdacError::InconsistentCrypto);
         }
+        let (pubkey_size, hash_size, sig_size) = adac_sizes_from_crypto(key_type)?;
 
         if public_key.len() != pubkey_size {
             return Err(AdacError::InvalidLength);
         }
         crate::validate_public_key_padding(key_type, public_key)?;
 
-        if header.format_version == (AdacVersion { major: 1, minor: 0 }) {
-            match key_type {
-                KeyOptions::EcdsaP384Sha384
-                | KeyOptions::MlDsa44Sha256
-                | KeyOptions::MlDsa65Sha384
-                | KeyOptions::MlDsa87Sha512 => return Err(AdacError::InconsistentVersion),
-                _ => {}
-            }
-
-            if header.policies != 0x0 {
-                return Err(AdacError::InconsistentVersion);
-            }
-        }
-
-        let extension_hash = match extensions {
-            Some(extensions) => {
-                h.extensions_bytes = extensions.len() as u32;
-                provider.hash(key_type, extensions)?
-            }
-            None => {
-                h.extensions_bytes = 0u32;
-                vec![0u8; hash_size]
-            }
+        let (extension_len, extension_hash) = match extensions {
+            Some(extensions) => (
+                extensions.len() as u32,
+                provider.hash(key_type, extensions)?,
+            ),
+            None => (0u32, vec![0u8; hash_size]),
         };
+        header.extensions_bytes = extension_len;
 
         if extension_hash.len() != hash_size {
             return Err(AdacError::InvalidLength);
         }
 
         let mut crt = Vec::<u8>::with_capacity(
-            size_of::<CertificateHeader>()
+            CertificateHeader::WIRE_SIZE
                 + pubkey_size
                 + hash_size
                 + sig_size
-                + h.extensions_bytes as usize,
+                + header.extensions_bytes as usize,
         );
 
-        crt.extend_from_slice(unsafe {
-            ::core::slice::from_raw_parts(
-                &h as *const CertificateHeader as *const u8,
-                size_of::<CertificateHeader>(),
-            )
-        });
+        crt.extend_from_slice(encode_header(header).as_slice());
         crt.extend_from_slice(public_key);
         crt.extend_from_slice(extension_hash.as_slice());
 
@@ -281,4 +234,68 @@ impl AdacCertificate {
             self.get_signature(),
         )
     }
+}
+
+#[cfg(feature = "explicit-serialization")]
+fn decode_header(bytes: &[u8]) -> Result<CertificateHeader, AdacError> {
+    CertificateHeader::from_bytes(bytes)
+}
+
+#[cfg(not(feature = "explicit-serialization"))]
+fn decode_header(bytes: &[u8]) -> Result<CertificateHeader, AdacError> {
+    if bytes[offset_of!(CertificateHeader, key_type)]
+        != bytes[offset_of!(CertificateHeader, signature_type)]
+    {
+        return Err(AdacError::InconsistentCrypto);
+    }
+    if KeyOptions::try_from(bytes[offset_of!(CertificateHeader, key_type)]).is_err() {
+        return Err(AdacError::InconsistentCrypto);
+    }
+    if CertificateRole::try_from(bytes[offset_of!(CertificateHeader, role)]).is_err() {
+        return Err(AdacError::Encoding(
+            "Invalid value for certificate role".to_string(),
+        ));
+    }
+    if CertificateUsage::try_from(bytes[offset_of!(CertificateHeader, usage)]).is_err() {
+        return Err(AdacError::Encoding(
+            "Invalid value for certificate usage".to_string(),
+        ));
+    }
+    let format_version = AdacVersion {
+        major: bytes[offset_of!(CertificateHeader, format_version)],
+        minor: bytes[offset_of!(CertificateHeader, format_version) + 1],
+    };
+    let policies_offset = offset_of!(CertificateHeader, policies);
+    let policies = u16::from_le_bytes([bytes[policies_offset], bytes[policies_offset + 1]]);
+    crate::validate_certificate_version(format_version, policies)?;
+
+    let header = unsafe {
+        let mut h = MaybeUninit::<CertificateHeader>::uninit();
+        core::ptr::copy_nonoverlapping(
+            bytes.as_ptr(),
+            h.as_mut_ptr() as *mut u8,
+            CertificateHeader::WIRE_SIZE,
+        );
+        h.assume_init()
+    };
+    header.validate()?;
+    Ok(header)
+}
+
+#[cfg(feature = "explicit-serialization")]
+fn encode_header(header: CertificateHeader) -> [u8; CertificateHeader::WIRE_SIZE] {
+    header.to_bytes()
+}
+
+#[cfg(not(feature = "explicit-serialization"))]
+fn encode_header(header: CertificateHeader) -> [u8; CertificateHeader::WIRE_SIZE] {
+    let mut bytes = [0u8; CertificateHeader::WIRE_SIZE];
+    unsafe {
+        core::ptr::copy_nonoverlapping(
+            &header as *const CertificateHeader as *const u8,
+            bytes.as_mut_ptr(),
+            CertificateHeader::WIRE_SIZE,
+        );
+    }
+    bytes
 }
