@@ -1,16 +1,8 @@
 // Copyright (c) 2019-2025, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-#[cfg(not(feature = "explicit-serialization"))]
-use crate::AdacVersion;
 use crate::traits::AdacCryptoProvider;
 use crate::{AdacError, CertificateHeader, KeyOptions};
-#[cfg(not(feature = "explicit-serialization"))]
-use crate::{CertificateRole, CertificateUsage};
-#[cfg(not(feature = "explicit-serialization"))]
-use core::mem::MaybeUninit;
-#[cfg(not(feature = "explicit-serialization"))]
-use std::mem::offset_of;
 
 pub struct AdacCertificate {
     certificate: Vec<u8>,
@@ -84,14 +76,14 @@ pub fn adac_sizes_from_crypto(key_type: KeyOptions) -> Result<(usize, usize, usi
 }
 
 impl AdacCertificate {
-    const HEADER_SIZE: usize = CertificateHeader::WIRE_SIZE;
+    const HEADER_SIZE: usize = CertificateHeader::SIZE;
 
     pub fn from_bytes(certificate: Vec<u8>) -> Result<Self, AdacError> {
         if certificate.len() < Self::HEADER_SIZE {
             return Err(AdacError::InvalidLength);
         }
 
-        let header = decode_header(&certificate[..Self::HEADER_SIZE])?;
+        let header = CertificateHeader::from_bytes(&certificate[..Self::HEADER_SIZE])?;
         let key_type = header.key_type;
 
         let (pubkey_size, hash_size, sig_size) = adac_sizes_from_crypto(key_type)?;
@@ -160,14 +152,14 @@ impl AdacCertificate {
         }
 
         let mut crt = Vec::<u8>::with_capacity(
-            CertificateHeader::WIRE_SIZE
+            CertificateHeader::SIZE
                 + pubkey_size
                 + hash_size
                 + sig_size
                 + header.extensions_bytes as usize,
         );
 
-        crt.extend_from_slice(encode_header(header).as_slice());
+        crt.extend_from_slice(header.to_bytes().as_slice());
         crt.extend_from_slice(public_key);
         crt.extend_from_slice(extension_hash.as_slice());
 
@@ -234,68 +226,4 @@ impl AdacCertificate {
             self.get_signature(),
         )
     }
-}
-
-#[cfg(feature = "explicit-serialization")]
-fn decode_header(bytes: &[u8]) -> Result<CertificateHeader, AdacError> {
-    CertificateHeader::from_bytes(bytes)
-}
-
-#[cfg(not(feature = "explicit-serialization"))]
-fn decode_header(bytes: &[u8]) -> Result<CertificateHeader, AdacError> {
-    if bytes[offset_of!(CertificateHeader, key_type)]
-        != bytes[offset_of!(CertificateHeader, signature_type)]
-    {
-        return Err(AdacError::InconsistentCrypto);
-    }
-    if KeyOptions::try_from(bytes[offset_of!(CertificateHeader, key_type)]).is_err() {
-        return Err(AdacError::InconsistentCrypto);
-    }
-    if CertificateRole::try_from(bytes[offset_of!(CertificateHeader, role)]).is_err() {
-        return Err(AdacError::Encoding(
-            "Invalid value for certificate role".to_string(),
-        ));
-    }
-    if CertificateUsage::try_from(bytes[offset_of!(CertificateHeader, usage)]).is_err() {
-        return Err(AdacError::Encoding(
-            "Invalid value for certificate usage".to_string(),
-        ));
-    }
-    let format_version = AdacVersion {
-        major: bytes[offset_of!(CertificateHeader, format_version)],
-        minor: bytes[offset_of!(CertificateHeader, format_version) + 1],
-    };
-    let policies_offset = offset_of!(CertificateHeader, policies);
-    let policies = u16::from_le_bytes([bytes[policies_offset], bytes[policies_offset + 1]]);
-    crate::validate_certificate_version(format_version, policies)?;
-
-    let header = unsafe {
-        let mut h = MaybeUninit::<CertificateHeader>::uninit();
-        core::ptr::copy_nonoverlapping(
-            bytes.as_ptr(),
-            h.as_mut_ptr() as *mut u8,
-            CertificateHeader::WIRE_SIZE,
-        );
-        h.assume_init()
-    };
-    header.validate()?;
-    Ok(header)
-}
-
-#[cfg(feature = "explicit-serialization")]
-fn encode_header(header: CertificateHeader) -> [u8; CertificateHeader::WIRE_SIZE] {
-    header.to_bytes()
-}
-
-#[cfg(not(feature = "explicit-serialization"))]
-fn encode_header(header: CertificateHeader) -> [u8; CertificateHeader::WIRE_SIZE] {
-    let mut bytes = [0u8; CertificateHeader::WIRE_SIZE];
-    unsafe {
-        core::ptr::copy_nonoverlapping(
-            &header as *const CertificateHeader as *const u8,
-            bytes.as_mut_ptr(),
-            CertificateHeader::WIRE_SIZE,
-        );
-    }
-    bytes
 }
