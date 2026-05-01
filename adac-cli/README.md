@@ -455,6 +455,8 @@ Use this subcommand to verify the integrity of a certificate or all the certific
 
 Verification checks that the supplied chain is internally consistent: each certificate is verified against the preceding certificate, starting from the root certificate included in the input. It does not determine whether that root certificate is trustworthy or matches an expected deployment root.
 
+For ADAC 1.1 certificates, verification reports the effective certificate policies when any policy bit is non-zero. Policy semantics are external to chain validation: `verify` reports the computed value but does not enforce policy-specific behavior.
+
 ```
 Usage: adac-cli verify [OPTIONS] <INPUT>
 ```
@@ -492,6 +494,7 @@ The settings and their values are described below and in the
 | version_minor | Certificate format (minor) | Incremented when members are added/changed while retaining backward compatibility. | 1 |
 | role | Certificate role in chain | 1=Root, 2=Intermediate, 3=Leaf (leaf signs the debug token). | 3 |
 | usage | Operational usage | 0=Neutral (no special usage), 1=Standard authentication, 2=RMA lifecycle. | 0 |
+| policies | Certificate policy bits | ADAC 1.1-only policy field. Non-zero policy bits are emitted into certificates and reported by `verify`; their semantics are defined outside chain validation. Must be zero for ADAC 1.0. | 0 |
 | lifecycle | PSA lifecycle restriction | 0 means no restriction. Non-zero values restrict use to a specific lifecycle (e.g., 0x3000 Secured, 0x4000 Debug). | 0 |
 | oem_constraint | OEM-defined constraint | Integrator/OEM bitfield to further scope authentication; compare against device’s OEM constraint value. | 0 |
 | soc_class | SoC family/class | Vendor-defined identifier for a family/revision of devices; can scope the cert to a device class. | 0 |
@@ -506,6 +509,7 @@ version_major = 1
 version_minor = 1
 role = 3
 usage = 0
+policies = 0
 lifecycle = 0
 oem_constraint = 0
 soc_class = 0
