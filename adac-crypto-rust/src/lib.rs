@@ -29,21 +29,22 @@ pub struct RustCryptoKey {
     key: Zeroizing<Vec<u8>>,
 }
 
+#[derive(Default)]
 pub struct RustCryptoProvider {
     deterministic: bool,
     current_key: Option<RustCryptoKey>,
 }
 
-impl Default for RustCryptoProvider {
-    fn default() -> Self {
-        RustCryptoProvider::new(false)
-    }
-}
-
 impl RustCryptoProvider {
-    pub fn new(deterministic: bool) -> Self {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[doc(hidden)]
+    #[cfg(any(test, feature = "hazmat-deterministic"))]
+    pub fn new_deterministic_for_tests() -> Self {
         RustCryptoProvider {
-            deterministic,
+            deterministic: true,
             current_key: None,
         }
     }

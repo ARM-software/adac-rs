@@ -13,7 +13,7 @@ adac = { path = "../adac" }
 adac-crypto = { path = "../adac-crypto" }
 adac-crypto-aws_lc = { path = "../adac-crypto-aws_lc" }
 adac-crypto-pkcs11 = { path = "../adac-crypto-pkcs11" }
-adac-crypto-rust = { path = "../adac-crypto-rust" }
+adac-crypto-rust = { path = "../adac-crypto-rust", features = ["hazmat-deterministic"] }
 adac-cryptoki = { path = "../adac-cryptoki" }
 base16ct = { workspace = true }
 base64 = { workspace = true }
