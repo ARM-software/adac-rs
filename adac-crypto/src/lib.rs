@@ -1,6 +1,7 @@
 // Copyright (c) 2019-2025, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
+pub mod encoding;
 pub mod public;
 pub mod utils;
 
