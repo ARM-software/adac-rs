@@ -23,7 +23,7 @@ pub fn load_certificates<P: AsRef<Path>>(path: P) -> Result<Vec<AdacCertificate>
 }
 
 pub fn read_certificates(contents: String) -> Result<Vec<AdacCertificate>, AdacError> {
-    let mut content = if let Ok(pem) = pem::parse(contents.as_str()) {
+    let content = if let Ok(pem) = pem::parse(contents.as_str()) {
         match pem.tag() {
             "ADAC CERTIFICATE CHAIN" => pem.contents().to_vec().clone(),
             _ => return Err(AdacError::Encoding("Unsupported pem tag".to_string())),
@@ -33,39 +33,19 @@ pub fn read_certificates(contents: String) -> Result<Vec<AdacCertificate>, AdacE
             .decode(contents)
             .map_err(|e| AdacError::Encoding(e.to_string()))?
     };
-    let mut binary = content.as_mut_slice();
 
     let mut v = Vec::<AdacCertificate>::new();
-    while !binary.is_empty() {
-        if binary.len() < 8 {
-            return Err(AdacError::Encoding(
-                "Remaining data too small for TLV entry".to_string(),
-            ));
-        }
-        let (tlv_h, tmp) = binary.split_at_mut(8);
-        let tlv_header = adac::decode_tlv_header(tlv_h)?;
-
+    for tlv in adac::parse_tlv_sequence(&content)? {
         // Check if type is ADAC Certificate
-        if tlv_header.type_id != 0x201 {
+        let type_id = tlv.header.type_id;
+        if type_id != 0x201 {
             return Err(AdacError::Encoding("Invalid certificate type".to_string()));
         }
-        if tlv_header.length as usize > tmp.len() {
-            return Err(AdacError::Encoding(
-                "Remaining data too small for TLV size".to_string(),
-            ));
-        }
-        if !tlv_header.length.is_multiple_of(4) {
-            return Err(AdacError::Encoding(
-                "Certificate size must be a multiple of 4".to_string(),
-            ));
-        }
-        let (crt, left) = tmp.split_at_mut(tlv_header.length as usize);
 
-        match AdacCertificate::from_bytes(crt.to_vec()) {
+        match AdacCertificate::from_bytes(tlv.value.to_vec()) {
             Ok(c) => v.push(c),
             Err(e) => return Err(e),
         }
-        binary = left;
     }
     Ok(v)
 }
