@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 use crate::{CommandError, CommandOutput, token};
-use adac::{CertificateRole, CertificateUsage};
+use adac::CertificateUsage;
+use adac_crypto::encoding::{EncodingIssue, validate_certificate_chain, validate_token};
 use adac_crypto::public::AdacPublicKey;
-use adac_crypto::utils::load_certificates;
+use adac_crypto::utils::{read_certificate_chain_bytes, read_certificates};
+use adac_crypto::validation::ChainValidator;
 use serde::Serialize;
 use sha2::Digest;
 use sha2::digest::Update;
@@ -13,6 +15,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Serialize)]
 pub struct VerificationReport {
+    encoding_errors: Vec<EncodingVerification>,
     certificates: Vec<CertificateVerification>,
     token: Option<TokenVerification>,
     summary: Vec<String>,
@@ -21,6 +24,13 @@ pub struct VerificationReport {
 
 impl VerificationReport {
     pub fn text_output(&self, out: &mut dyn Write) -> anyhow::Result<()> {
+        for error in &self.encoding_errors {
+            writeln!(
+                out,
+                "Encoding error at {}, offset {}: {}",
+                error.context, error.offset, error.message
+            )?;
+        }
         for (i, crt) in self.certificates.iter().enumerate() {
             writeln!(out, "Certificate {}: Key ID {}", i, crt.key_id)?;
             for e in &crt.errors {
@@ -56,6 +66,23 @@ impl VerificationReport {
 }
 
 #[derive(Debug, Serialize)]
+pub struct EncodingVerification {
+    offset: usize,
+    context: String,
+    message: String,
+}
+
+impl From<EncodingIssue> for EncodingVerification {
+    fn from(issue: EncodingIssue) -> Self {
+        Self {
+            offset: issue.offset,
+            context: issue.context,
+            message: issue.message,
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
 pub struct CertificateVerification {
     key_id: String,
     errors: Vec<String>,
@@ -71,9 +98,35 @@ pub fn verify_command(
     token: &Option<PathBuf>,
     challenge: &Option<String>,
 ) -> anyhow::Result<CommandOutput, CommandError> {
-    let chain = load_certificates(path).map_err(|e| CommandError::AdacError {
-        source: anyhow::anyhow!("Error loading certificate chain: {:?}", e),
+    let contents = std::fs::read_to_string(path).map_err(|e| CommandError::AdacError {
+        source: anyhow::anyhow!("Error reading certificate chain: {:?}", e),
     })?;
+    let certificate_chain_bytes =
+        read_certificate_chain_bytes(contents.as_str()).map_err(|e| CommandError::AdacError {
+            source: anyhow::anyhow!("Error decoding certificate chain: {:?}", e),
+        })?;
+    let mut encoding_errors = validate_certificate_chain(certificate_chain_bytes.as_slice())
+        .into_iter()
+        .map(EncodingVerification::from)
+        .collect::<Vec<_>>();
+
+    let chain = match read_certificates(contents) {
+        Ok(chain) => chain,
+        Err(e) if !encoding_errors.is_empty() => {
+            return Ok(CommandOutput::Verify(VerificationReport {
+                error_count: encoding_errors.len() as u64,
+                encoding_errors,
+                certificates: Vec::new(),
+                token: None,
+                summary: Vec::new(),
+            }));
+        }
+        Err(e) => {
+            return Err(CommandError::AdacError {
+                source: anyhow::anyhow!("Error loading certificate chain: {:?}", e),
+            });
+        }
+    };
 
     if chain.is_empty() {
         return Err(CommandError::AdacError {
@@ -91,6 +144,11 @@ pub fn verify_command(
         let contents = std::fs::read(token).map_err(|e| CommandError::AdacError {
             source: anyhow::anyhow!("Error loading token: {:?}", e),
         })?;
+        encoding_errors.extend(
+            validate_token(contents.as_slice())
+                .into_iter()
+                .map(EncodingVerification::from),
+        );
         Some(contents)
     } else {
         None
@@ -102,25 +160,14 @@ pub fn verify_command(
         None
     };
 
-    let mut error_count = 0;
+    let mut error_count = encoding_errors.len() as u64;
     let crypto = adac_crypto_rust::RustCryptoProvider::default();
-    let mut pubkey = chain[0].get_public_key();
-    let mut header = chain[0].header();
-    let mut usage = header.usage;
-    let mut lifecycle = header.lifecycle;
-    let mut oem_constraint = header.oem_constraint;
-    let mut soc_id = header.soc_id;
-    let mut soc_class = header.soc_class;
-    let mut policies = 0u16;
-    let mut permissions = header.permissions_mask;
+    let mut validator = ChainValidator::new(&crypto);
 
     let mut certificates = vec![];
 
-    for i in 0..chain.len() {
-        let mut errors = vec![];
-        let current = &chain[i];
-        header = current.header();
-
+    for (i, current) in chain.iter().enumerate() {
+        let header = current.header();
         let public_key = AdacPublicKey::from_adac(header.key_type, current.get_public_key())
             .map_err(|e| CommandError::AdacError {
                 source: anyhow::anyhow!("Error parsing public key at level {}: {:?}", i, e),
@@ -128,121 +175,60 @@ pub fn verify_command(
         let key_id = sha2::Sha256::new().chain(public_key.get_spki()).finalize();
         let key_id = base16ct::lower::encode_string(key_id.as_slice());
 
-        if i == 0 && header.role != CertificateRole::AdacCrtRoleRoot {
-            error_count += 1;
-            errors.push("First certificate does not have Root role".to_string());
-        } else if header.role == CertificateRole::AdacCrtRoleRoot && i > 0 {
-            error_count += 1;
-            errors.push("Only first certificate can have root role".to_string());
-        } else if header.role == CertificateRole::AdacCrtRoleLeaf && i != chain.len() - 1 {
-            error_count += 1;
-            errors.push("Only last certificate can have leaf role".to_string());
-        } else {
-            // TODO: `verify` accepts any certificate chains, whether or not they terminate with
-            // a leaf certificate. Therefore a non-leaf final certificate is not an error in
-            // itself. A future version might consider adding an explicit flag that requires the
-            // last certificate to have the Leaf role and return a verification failure when this
-            // requirement is not satified.
-        }
-
-        if usage == CertificateUsage::AdacUsageNeutral {
-            usage = header.usage;
-        } else if usage != header.usage {
-            error_count += 1;
-            errors.push(format!(
-                "Usage mismatch was {:?} now {:?}",
-                usage, header.usage
-            ));
-        }
-
-        if soc_id == [0x0u8; 16] {
-            soc_id = header.soc_id;
-        } else if soc_id != header.soc_id {
-            error_count += 1;
-            errors.push(format!(
-                "SoC ID does not match ({:?} != {:?})",
-                soc_id, header.soc_id
-            ));
-        }
-        if soc_class == 0 {
-            soc_class = header.soc_class;
-        } else if header.soc_class != 0 && soc_class != header.soc_class {
-            let h_soc_class = header.soc_class;
-            error_count += 1;
-            errors.push(format!(
-                "SoC ID Class not match (0x{:x} != 0x{:x})",
-                soc_class, h_soc_class
-            ));
-        }
-        if lifecycle == 0 {
-            lifecycle = header.lifecycle;
-        } else if header.lifecycle != 0 && lifecycle != header.lifecycle {
-            let h_lifecycle = header.lifecycle;
-            error_count += 1;
-            errors.push(format!(
-                "Lifecycle does not match (0x{:x} != 0x{:x})",
-                lifecycle, h_lifecycle
-            ));
-        }
-        if oem_constraint == 0 {
-            oem_constraint = header.oem_constraint;
-        } else if header.oem_constraint != 0 && oem_constraint != header.oem_constraint {
-            let h_oem_constraint = header.oem_constraint;
-            error_count += 1;
-            errors.push(format!(
-                "OEM constraint does not match (0x{:x} != 0x{:x})",
-                oem_constraint, h_oem_constraint
-            ));
-        }
-        for (i, p) in permissions.iter_mut().enumerate() {
-            *p &= header.permissions_mask[i];
-        }
-        policies |= header.policies;
-
-        match current.verify(pubkey, &crypto) {
-            Ok(()) => {}
-            Err(e) => {
-                error_count += 1;
-                errors.push(format!("Signature verification failed: {:?}", e));
-            }
-        }
-        pubkey = current.get_public_key();
-
-        certificates.push(CertificateVerification { key_id, errors });
+        validator.push_certificate(current);
+        certificates.push(CertificateVerification {
+            key_id,
+            errors: Vec::new(),
+        });
     }
 
+    let mut token_effective_permissions = None;
     let token = if let (Some(token), Some(challenge)) = (token, challenge) {
-        let mut errors = vec![];
-        let signer = chain.last().expect("Chain can't be empty");
         let token = token::read_token(token.as_slice()).map_err(|e| {
             error_count += 1;
             CommandError::AdacError {
                 source: anyhow::anyhow!("Error parsing token: {:?}", e),
             }
         })?;
-        if signer.header().key_type != token.header().signature_type {
-            error_count += 1;
-            errors.push("Token signature algorithm does not match.".to_string());
-        } else {
-            match token.verify(signer.get_public_key(), challenge.as_slice(), &crypto) {
-                Ok(()) => {
-                    let header = token.header();
-                    for (i, p) in permissions.iter_mut().enumerate() {
-                        *p &= header.requested_permissions[i];
-                    }
-                }
-                Err(e) => {
-                    error_count += 1;
-                    errors.push(format!("Signature verification failed: {:?}", e));
-                }
-            };
-        }
+        let token_result = validator.validate_token(&token, challenge.as_slice());
+        let errors = token_result
+            .errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        error_count += errors.len() as u64;
+        token_effective_permissions = token_result.effective_permissions;
         Some(TokenVerification { errors })
     } else {
         None
     };
 
+    let validation = validator.finish();
+    error_count += validation.chain_errors.len() as u64;
+    for certificate in &validation.certificates {
+        let errors = certificate
+            .errors
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        error_count += errors.len() as u64;
+        certificates[certificate.index].errors = errors;
+    }
+
+    let permissions = token_effective_permissions.unwrap_or(validation.effective.permissions);
+
     let mut summary = vec![];
+    for error in validation.chain_errors {
+        summary.push(error.to_string());
+    }
+
+    let usage = validation.effective.usage;
+    let lifecycle = validation.effective.lifecycle;
+    let oem_constraint = validation.effective.oem_constraint;
+    let soc_id = validation.effective.soc_id;
+    let soc_class = validation.effective.soc_class;
+    let policies = validation.effective.policies;
+
     if soc_id != [0x0u8; 16] {
         let mut id = [0x0u8; 16];
         id.copy_from_slice(u128::from_le_bytes(soc_id).to_be_bytes().as_ref());
@@ -280,6 +266,7 @@ pub fn verify_command(
         base16ct::lower::encode_string(permissions.as_slice())
     ));
     Ok(CommandOutput::Verify(VerificationReport {
+        encoding_errors,
         certificates,
         token,
         summary,
@@ -295,7 +282,7 @@ mod tests {
     use crate::tests;
     use crate::token::token_sign_command;
     use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
-    use adac_crypto::utils::load_key;
+    use adac_crypto::utils::{load_certificates, load_key};
     use adac_crypto_rust::RustCryptoProvider;
     use std::{fs, path::Path};
 
@@ -612,6 +599,35 @@ policies = 0x2
                 .summary
                 .iter()
                 .any(|line| line == "Effective policies: 0x3")
+        );
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn verify_command_reports_certificate_chain_encoding_errors() {
+        let dir = tests::make_temp_dir("adac-cli-verify-tests");
+        let chain_path = write_signed_chain(&dir, "root", "leaf_restricted", "bad-encoding.pem");
+        let contents = fs::read_to_string(&chain_path).unwrap();
+        let mut bytes = read_certificate_chain_bytes(contents.as_str()).unwrap();
+        bytes[1] = 1;
+        let pem = pem::Pem::new("ADAC CERTIFICATE CHAIN", bytes);
+        let pem = pem::encode_config(
+            &pem,
+            pem::EncodeConfig::new().set_line_ending(pem::LineEnding::LF),
+        );
+        fs::write(&chain_path, pem).unwrap();
+
+        let output = verify_command(&chain_path, &None, &None).unwrap();
+
+        let CommandOutput::Verify(report) = output else {
+            panic!("unexpected command output");
+        };
+        assert_eq!(report.error_count, 1);
+        assert_eq!(report.encoding_errors.len(), 1);
+        assert_eq!(
+            report.encoding_errors[0].message,
+            "Invalid nonzero TLV reserved field"
         );
 
         let _ = fs::remove_dir_all(dir);

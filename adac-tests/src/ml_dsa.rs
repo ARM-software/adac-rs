@@ -98,6 +98,6 @@ mod tests {
 
         // println!("{}", save_certificates(&chain).unwrap());
 
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 }

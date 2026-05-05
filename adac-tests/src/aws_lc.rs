@@ -15,7 +15,7 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.EcdsaP256").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -24,7 +24,7 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.EcdsaP384").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -33,7 +33,7 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.EcdsaP521").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -42,7 +42,7 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.MlDsa44").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -51,7 +51,7 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.MlDsa65").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -60,7 +60,7 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.MlDsa87").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -155,9 +155,9 @@ mod tests {
             //     assert_eq!(c.len(), r.len());
             //     assert_eq!(c, r);
             // }
-            verify_chain(reference, &crypto).unwrap();
+            crate::assert_valid_chain(&reference, &crypto);
         }
 
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 }
