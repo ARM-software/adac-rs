@@ -4,6 +4,7 @@
 pub mod encoding;
 pub mod public;
 pub mod utils;
+pub mod validation;
 
 pub const ML_DSA_44_OID: der::oid::ObjectIdentifier =
     der::oid::ObjectIdentifier::new_unwrap("2.16.840.1.101.3.4.3.17");

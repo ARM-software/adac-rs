@@ -5,7 +5,10 @@
 
 use adac::CertificateRole::*;
 use adac::KeyOptions::*;
+use adac::certificate::AdacCertificate;
+use adac::traits::AdacCryptoProvider;
 use adac::{AdacVersion, CertificateHeader, KeyOptions};
+use adac_crypto::validation::validate_chain;
 
 mod aws_lc;
 mod cryptoki;
@@ -39,6 +42,15 @@ where
         .expect("Failed to create a test thread")
         .join()
         .expect("Failed to join a test thread")
+}
+
+pub fn assert_valid_chain(chain: &[AdacCertificate], crypto: &dyn AdacCryptoProvider) {
+    let result = validate_chain(chain, crypto);
+    assert!(
+        !result.has_errors(),
+        "certificate chain validation failed: {:#?}",
+        result
+    );
 }
 
 pub fn test_certificate_header(key_type: KeyOptions, level: usize) -> CertificateHeader {

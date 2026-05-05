@@ -12,7 +12,6 @@ mod tests {
     use adac::{AdacVersion, CertificateHeader, KeyOptions};
     use adac_crypto::utils::{
         get_public_key, load_certificates, load_key, read_certificates, save_certificates,
-        verify_chain,
     };
     use std::fs::File;
     use std::io::Write;
@@ -23,11 +22,11 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.EcdsaP256").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
 
         let chain = load_certificates("resources/roots/root.EcdsaP256").unwrap();
         assert_eq!(chain.len(), 1);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -36,11 +35,11 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.EcdsaP384").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
 
         let chain = load_certificates("resources/roots/root.EcdsaP384").unwrap();
         assert_eq!(chain.len(), 1);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -49,11 +48,11 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.EcdsaP521").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
 
         let chain = load_certificates("resources/roots/root.EcdsaP521").unwrap();
         assert_eq!(chain.len(), 1);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -62,11 +61,11 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.Ed25519").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
 
         let chain = load_certificates("resources/roots/root.Ed25519").unwrap();
         assert_eq!(chain.len(), 1);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -75,11 +74,11 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.Ed448").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
 
         let chain = load_certificates("resources/roots/root.Ed448").unwrap();
         assert_eq!(chain.len(), 1);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -88,11 +87,11 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.MlDsa44").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
 
         let chain = load_certificates("resources/roots/root.MlDsa44").unwrap();
         assert_eq!(chain.len(), 1);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -101,11 +100,11 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.MlDsa65").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
 
         let chain = load_certificates("resources/roots/root.MlDsa65").unwrap();
         assert_eq!(chain.len(), 1);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -114,11 +113,11 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.MlDsa87").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
 
         let chain = load_certificates("resources/roots/root.MlDsa87").unwrap();
         assert_eq!(chain.len(), 1);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -127,11 +126,11 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.Rsa3072").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
 
         let chain = load_certificates("resources/roots/root.Rsa3072").unwrap();
         assert_eq!(chain.len(), 1);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -140,11 +139,11 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.Rsa4096").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
 
         let chain = load_certificates("resources/roots/root.Rsa4096").unwrap();
         assert_eq!(chain.len(), 1);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -153,11 +152,11 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.Sm2").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
 
         let chain = load_certificates("resources/roots/root.Sm2").unwrap();
         assert_eq!(chain.len(), 1);
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[test]
@@ -516,11 +515,11 @@ mod tests {
 
         let save = save_certificates(&chain).unwrap();
 
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
 
         let chain = read_certificates(save).unwrap();
 
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     fn rust_crypto_root_sig_test(key_type: KeyOptions, key_path: &str, test_file: &str) {
@@ -556,7 +555,7 @@ mod tests {
             assert_eq!(c.len(), r.len());
             assert_eq!(c, r);
         }
-        verify_chain(chain, &crypto).unwrap();
+        crate::assert_valid_chain(&chain, &crypto);
     }
 
     #[ignore]

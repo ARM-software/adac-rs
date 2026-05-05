@@ -76,9 +76,7 @@ mod tests {
     use adac::token::AdacToken;
     use adac::traits::{AdacCryptoProvider, AdacKeyFormat};
     use adac::{KeyOptions, TokenHeader};
-    use adac_crypto::utils::{
-        convert_public_key, load_certificates, load_key, save_certificates, verify_chain,
-    };
+    use adac_crypto::utils::{convert_public_key, load_certificates, load_key, save_certificates};
     use std::ops::{Deref, DerefMut};
 
     #[test]
@@ -277,7 +275,7 @@ mod tests {
         assert_eq!(chain.len(), key_ids.len());
         println!("{}", save_certificates(&chain).unwrap());
         let rust_crypto = adac_crypto_rust::RustCryptoProvider::default();
-        verify_chain(chain, &rust_crypto).unwrap();
+        crate::assert_valid_chain(&chain, &rust_crypto);
     }
 
     #[test]
@@ -324,7 +322,7 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.EcdsaP256").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, crypto.deref()).unwrap();
+        crate::assert_valid_chain(&chain, crypto.deref());
     }
 
     #[test]
@@ -333,7 +331,7 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.EcdsaP384").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, crypto.deref()).unwrap();
+        crate::assert_valid_chain(&chain, crypto.deref());
     }
 
     #[test]
@@ -342,7 +340,7 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.EcdsaP521").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, crypto.deref()).unwrap();
+        crate::assert_valid_chain(&chain, crypto.deref());
     }
 
     #[ignore]
@@ -352,7 +350,7 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.Ed25519").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, crypto.deref()).unwrap();
+        crate::assert_valid_chain(&chain, crypto.deref());
     }
 
     #[ignore]
@@ -362,7 +360,7 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.Ed448").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, crypto.deref()).unwrap();
+        crate::assert_valid_chain(&chain, crypto.deref());
     }
 
     #[test]
@@ -371,7 +369,7 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.Rsa3072").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, crypto.deref()).unwrap();
+        crate::assert_valid_chain(&chain, crypto.deref());
     }
 
     #[test]
@@ -380,6 +378,6 @@ mod tests {
 
         let chain = load_certificates("resources/chains/chain.Rsa4096").unwrap();
         assert_eq!(chain.len(), 4);
-        verify_chain(chain, crypto.deref()).unwrap();
+        crate::assert_valid_chain(&chain, crypto.deref());
     }
 }

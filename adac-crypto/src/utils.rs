@@ -5,7 +5,7 @@ use crate::public::{
     self, AdacPublicKey, ec_dsa, ed_448, ed_25519,
     ml_dsa::{KeyConverter, from_spki_mldsa},
 };
-use adac::{AdacError, CertificateRole, KeyOptions, KeyOptions::*};
+use adac::{AdacError, KeyOptions, KeyOptions::*};
 use adac::{certificate::AdacCertificate, traits::AdacCryptoProvider};
 use base64::prelude::*;
 use der::oid::AssociatedOid;
@@ -22,17 +22,21 @@ pub fn load_certificates<P: AsRef<Path>>(path: P) -> Result<Vec<AdacCertificate>
     read_certificates(contents)
 }
 
-pub fn read_certificates(contents: String) -> Result<Vec<AdacCertificate>, AdacError> {
-    let content = if let Ok(pem) = pem::parse(contents.as_str()) {
+pub fn read_certificate_chain_bytes(contents: &str) -> Result<Vec<u8>, AdacError> {
+    if let Ok(pem) = pem::parse(contents) {
         match pem.tag() {
-            "ADAC CERTIFICATE CHAIN" => pem.contents().to_vec().clone(),
-            _ => return Err(AdacError::Encoding("Unsupported pem tag".to_string())),
+            "ADAC CERTIFICATE CHAIN" => Ok(pem.contents().to_vec()),
+            _ => Err(AdacError::Encoding("Unsupported pem tag".to_string())),
         }
     } else {
-        BASE64_STANDARD
+        Ok(BASE64_STANDARD
             .decode(contents)
-            .map_err(|e| AdacError::Encoding(e.to_string()))?
-    };
+            .map_err(|e| AdacError::Encoding(e.to_string()))?)
+    }
+}
+
+pub fn read_certificates(contents: String) -> Result<Vec<AdacCertificate>, AdacError> {
+    let content = read_certificate_chain_bytes(contents.as_str())?;
 
     let mut v = Vec::<AdacCertificate>::new();
     for tlv in adac::parse_tlv_sequence(&content)? {
@@ -169,17 +173,9 @@ pub fn verify_chain(
     chain: Vec<AdacCertificate>,
     crypto: &dyn AdacCryptoProvider,
 ) -> Result<(), AdacError> {
-    let mut pubkey = chain[0].get_public_key();
-
-    for (i, current) in chain.iter().enumerate() {
-        if i == 0 && current.header().role != CertificateRole::AdacCrtRoleRoot {
-            return Err(AdacError::Encoding(
-                "First certificate is not Root".to_string(),
-            ));
-        }
-
-        current.verify(pubkey, crypto)?;
-        pubkey = current.get_public_key();
+    let result = crate::validation::validate_chain(&chain, crypto);
+    if let Some(error) = result.first_error() {
+        return Err(AdacError::Encoding(error.to_string()));
     }
     Ok(())
 }
