@@ -356,8 +356,6 @@ pub fn certificate_merge_command(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sign::certificate_sign_command;
-    use crate::tests;
 
     #[test]
     fn prepare_crypto_provider_rejects_key_type_mismatch() {
@@ -392,109 +390,5 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, adac::AdacError::InvalidLength));
-    }
-
-    #[test]
-    fn certificate_merge_command_rejects_certificate_not_signed_by_issuer() {
-        let dir = tests::make_temp_dir("adac-cli-offline-tests");
-        let config_path = tests::write_cert_config(&dir);
-        let root_public =
-            tests::write_public_key_from_private(&dir, "EcdsaP384Key-0.pk8", "root.pub");
-        let leaf_public =
-            tests::write_public_key_from_private(&dir, "EcdsaP384Key-1.pk8", "leaf.pub");
-        let root_path = dir.join("root.crt");
-        let prepared_path = dir.join("prepared.crt");
-        let signature_path = dir.join("signature.der");
-
-        certificate_sign_command(
-            &config_path,
-            &None,
-            &Some(root_path.clone()),
-            &Some(tests::fixture_path("keys", "EcdsaP384Key-0.pk8")),
-            &None,
-            &None,
-            &None,
-            &None,
-            &None,
-            &None,
-            &root_public,
-            &Some("root".to_string()),
-        )
-        .unwrap();
-
-        certificate_prepare_command(
-            &config_path,
-            &leaf_public,
-            &Some("intermediate".to_string()),
-            &Some(prepared_path.clone()),
-            &None,
-            &None,
-        )
-        .unwrap();
-
-        fs::write(
-            &signature_path,
-            [0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01],
-        )
-        .unwrap();
-
-        let err =
-            certificate_merge_command(&Some(root_path), &None, &prepared_path, &signature_path)
-                .unwrap_err();
-
-        match err {
-            CommandError::AdacError { source } => {
-                assert!(
-                    source
-                        .to_string()
-                        .contains("does not verify against issuer chain")
-                );
-            }
-            other => panic!("unexpected error: {other:?}"),
-        }
-
-        let _ = fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn certificate_prepare_command_emits_policies() {
-        let dir = tests::make_temp_dir("adac-cli-offline-tests");
-        let config_path = dir.join("cert-config.toml");
-        fs::write(
-            &config_path,
-            r#"
-[defaults]
-version_major = 1
-version_minor = 1
-role = 1
-usage = 0
-policies = 0x34
-lifecycle = 0
-oem_constraint = 0
-soc_class = 0
-soc_id = "0x00000000000000000000000000000000"
-permissions_mask = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
-extensions = ""
-"#,
-        )
-        .unwrap();
-        let public = tests::write_public_key_from_private(&dir, "EcdsaP384Key-0.pk8", "root.pub");
-        let output = dir.join("prepared.crt");
-
-        certificate_prepare_command(
-            &config_path,
-            &public,
-            &None,
-            &Some(output.clone()),
-            &None,
-            &None,
-        )
-        .unwrap();
-
-        let chain = load_certificates(output).unwrap();
-        let policies = chain[0].header().policies;
-        assert_eq!(policies, 0x34);
-
-        let _ = fs::remove_dir_all(dir);
     }
 }

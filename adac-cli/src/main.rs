@@ -1,25 +1,13 @@
 // Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-mod config;
-mod display;
-mod misc;
-mod offline;
-mod pkcs11;
-mod shared;
-mod sign;
-#[cfg(test)]
-mod tests;
-mod token;
-mod verify;
-
+use adac_cli::{CommandOutput, display, misc, offline, pkcs11, shared, sign, token, verify};
 use anyhow::{Context, Result};
 use clap::{ArgAction, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use std::io::Write;
 use std::path::PathBuf;
 use std::{fs::OpenOptions, io, sync::OnceLock};
-use thiserror::Error;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, filter::LevelFilter, fmt, fmt::writer::BoxMakeWriter};
 
@@ -371,46 +359,6 @@ impl Commands {
             Commands::Verify { .. } => "verify",
         }
     }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum CommandOutput {
-    Display(display::DisplayReport),
-    Pkcs11Generate(pkcs11::Pkcs11GenerateReport),
-    Pop(misc::PopReport),
-    Push(misc::PushReport),
-    RotHash(misc::RotReport),
-    CertificateSign(sign::CertficateSignatureReport),
-    CertificateOfflinePrepare(offline::PrepareReport),
-    CertificateOfflineMerge(offline::MergeReport),
-    TokenSign(token::TokenSignatureReport),
-    TokenOfflinePrepare(token::TokenPrepareReport),
-    TokenOfflineMerge(token::TokenMergeReport),
-    Verify(verify::VerificationReport),
-}
-
-#[derive(Debug, Error)]
-enum CommandError {
-    #[error("Failed to read file from {path}")]
-    FileRead {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("Failed to write to {path}")]
-    FileWrite {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("Invalid value for parameter {parameter}")]
-    InvalidParameter { parameter: String },
-    #[error("ADAC Library Error")]
-    AdacError {
-        #[source]
-        source: anyhow::Error,
-    },
 }
 
 static LOG_GUARD: OnceLock<WorkerGuard> = OnceLock::new();

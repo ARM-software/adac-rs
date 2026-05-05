@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use zeroize::Zeroizing;
 
 #[derive(Clone)]
-pub(crate) struct PinSecret(Zeroizing<String>);
+pub struct PinSecret(Zeroizing<String>);
 
 impl PinSecret {
     pub(crate) fn expose_clone(&self) -> Zeroizing<String> {
