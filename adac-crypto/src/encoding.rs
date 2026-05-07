@@ -6,6 +6,7 @@ use adac::{
 };
 
 const CERTIFICATE_TLV_TYPE: u16 = 0x0201;
+const TOKEN_SOC_ID_EXTENSION_TYPE: u16 = 0x0004;
 
 #[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
 pub struct EncodingValidationPolicy {
@@ -360,6 +361,12 @@ fn validate_extension_policy(
 
     for (i, span) in spans.iter().enumerate() {
         if span.flags & adac::TLV_FLAG_CRITICAL != 0 {
+            if context == "token.extensions"
+                && span.type_id == TOKEN_SOC_ID_EXTENSION_TYPE
+                && span.value_len == 16
+            {
+                continue;
+            }
             issues.push(EncodingIssue::new(
                 span.value_offset.saturating_sub(AdacTlvHeader::SIZE),
                 format!("{context}.tlv[{i}]"),

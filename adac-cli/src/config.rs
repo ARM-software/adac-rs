@@ -4,6 +4,16 @@
 use adac::{AdacError, AdacVersion, CertificateRole, CertificateUsage};
 use toml::{Table, Value};
 
+const EXTENSION_TYPE_SOC_ID: u16 = 0x0004;
+const EXTENSION_TYPE_TARGET_IDENTITY: u16 = 0x0005;
+const EXTENSION_TYPE_SW_PARTITION_ID: u16 = 0x0009;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum ExtensionContext {
+    Certificate,
+    Token,
+}
+
 #[derive(Debug, PartialEq)]
 pub struct AdacCertificateConfig {
     pub format_version: AdacVersion,
@@ -201,16 +211,14 @@ pub fn parse_adac_configuration(
 
     let permissions_mask = parse_hex_u128_field(permissions, "default 'permissions_mask'")?;
 
-    let extensions = defaults
-        .get("extensions")
-        .ok_or(AdacError::Encoding(
-            "Missing default 'extensions' value".to_string(),
-        ))?
-        .as_str()
-        .ok_or(AdacError::Encoding(
-            "Value for default 'extensions' is not String".to_string(),
-        ))?;
-    let extensions = parse_base16_bytes_field(extensions, "default 'extensions'")?;
+    let extensions = defaults.get("extensions").ok_or(AdacError::Encoding(
+        "Missing default 'extensions' value".to_string(),
+    ))?;
+    let extensions = parse_extensions_field(
+        extensions,
+        "default 'extensions'",
+        ExtensionContext::Certificate,
+    )?;
 
     let mut c = AdacCertificateConfig {
         format_version,
@@ -369,10 +377,8 @@ pub fn parse_adac_configuration(
     }
 
     if let Some(extensions) = sec.get("extensions") {
-        let extensions = extensions.as_str().ok_or(AdacError::Encoding(
-            "Value for 'extensions' is not String".to_string(),
-        ))?;
-        c.extensions = parse_base16_bytes_field(extensions, "'extensions'")?;
+        c.extensions =
+            parse_extensions_field(extensions, "'extensions'", ExtensionContext::Certificate)?;
     }
 
     validate_certificate_config(&c)?;
@@ -432,7 +438,8 @@ pub fn parse_adac_token_configuration(
     let requested_permissions =
         parse_hex_u128_field(requested_permissions, "default 'requested_permissions'")?;
 
-    let extensions = parse_optional_extensions(defaults, "default 'extensions'")?;
+    let extensions =
+        parse_optional_extensions(defaults, "default 'extensions'", ExtensionContext::Token)?;
 
     let mut c = AdacTokenConfig {
         format_version: AdacVersion {
@@ -498,7 +505,7 @@ pub fn parse_adac_token_configuration(
     }
 
     if sec.get("extensions").is_some() {
-        c.extensions = parse_optional_extensions(sec, "'extensions'")?;
+        c.extensions = parse_optional_extensions(sec, "'extensions'", ExtensionContext::Token)?;
     }
 
     Ok(c)
@@ -548,15 +555,174 @@ fn parse_hex_u128_field(value: &str, field: &str) -> Result<[u8; 16], AdacError>
     Ok(value.to_le_bytes())
 }
 
-fn parse_optional_extensions(table: &Value, field: &str) -> Result<Vec<u8>, AdacError> {
+fn parse_optional_extensions(
+    table: &Value,
+    field: &str,
+    context: ExtensionContext,
+) -> Result<Vec<u8>, AdacError> {
     let Some(extensions) = table.get("extensions") else {
         return Ok(vec![]);
     };
-    let extensions = extensions.as_str().ok_or(AdacError::Encoding(format!(
-        "Value for {} is not String",
-        field
-    )))?;
-    parse_base16_bytes_field(extensions, field)
+    parse_extensions_field(extensions, field, context)
+}
+
+fn parse_extensions_field(
+    value: &Value,
+    field: &str,
+    context: ExtensionContext,
+) -> Result<Vec<u8>, AdacError> {
+    match value {
+        Value::String(value) if value.contains(':') => {
+            parse_structured_extension(value, field, context)
+        }
+        Value::String(value) => parse_legacy_extension_tlv_sequence(value, field),
+        Value::Array(values) => {
+            let mut extensions = Vec::new();
+            for (i, value) in values.iter().enumerate() {
+                let item_field = format!("{field}[{i}]");
+                let value = value.as_str().ok_or(AdacError::Encoding(format!(
+                    "Value for {item_field} is not String"
+                )))?;
+                extensions.extend(parse_single_extension(value, &item_field, context)?);
+            }
+            Ok(extensions)
+        }
+        _ => Err(AdacError::Encoding(format!(
+            "Value for {field} is not String or Array"
+        ))),
+    }
+}
+
+fn parse_single_extension(
+    value: &str,
+    field: &str,
+    context: ExtensionContext,
+) -> Result<Vec<u8>, AdacError> {
+    if value.contains(':') {
+        parse_structured_extension(value, field, context)
+    } else {
+        parse_legacy_single_tlv(value, field)
+    }
+}
+
+fn parse_legacy_extension_tlv_sequence(value: &str, field: &str) -> Result<Vec<u8>, AdacError> {
+    let extensions = parse_base16_bytes_field(value, field)?;
+    validate_extension_tlv_sequence(&extensions, field)?;
+    Ok(extensions)
+}
+
+fn parse_legacy_single_tlv(value: &str, field: &str) -> Result<Vec<u8>, AdacError> {
+    let extension = parse_base16_bytes_field(value, field)?;
+    let tlvs = validate_extension_tlv_sequence(&extension, field)?;
+    if tlvs.len() != 1 {
+        return Err(AdacError::Encoding(format!(
+            "Value for {field} must encode exactly one TLV"
+        )));
+    }
+    Ok(extension)
+}
+
+fn validate_extension_tlv_sequence<'a>(
+    extensions: &'a [u8],
+    field: &str,
+) -> Result<Vec<adac::AdacTlv<'a>>, AdacError> {
+    adac::parse_tlv_sequence(extensions).map_err(|e| {
+        AdacError::Encoding(format!(
+            "Value for {field} is not a valid TLV sequence: {e:?}"
+        ))
+    })
+}
+
+fn parse_structured_extension(
+    value: &str,
+    field: &str,
+    context: ExtensionContext,
+) -> Result<Vec<u8>, AdacError> {
+    let parts = value.split(':').collect::<Vec<_>>();
+    let (flags, type_name, value) = match parts.as_slice() {
+        [type_name, value] => (0, *type_name, *value),
+        ["critical", type_name, value] => (adac::TLV_FLAG_CRITICAL, *type_name, *value),
+        _ => {
+            return Err(AdacError::Encoding(format!(
+                "Value for {field} is not a valid extension"
+            )));
+        }
+    };
+
+    let type_id = parse_extension_type(type_name, field, context)?;
+    let value = parse_extension_value(value, field)?;
+    validate_known_extension_value(type_id, &value, field)?;
+
+    Ok(adac::tlv_wrap_with_flags(type_id, flags, value.as_slice()))
+}
+
+fn parse_extension_type(
+    value: &str,
+    field: &str,
+    context: ExtensionContext,
+) -> Result<u16, AdacError> {
+    match value {
+        "soc_id" if context == ExtensionContext::Token => Ok(EXTENSION_TYPE_SOC_ID),
+        "soc_id" => Err(AdacError::Encoding(format!(
+            "Value for {field} uses token-only extension 'soc_id'"
+        ))),
+        "target_identity" => Ok(EXTENSION_TYPE_TARGET_IDENTITY),
+        "sw_partition_id" => Ok(EXTENSION_TYPE_SW_PARTITION_ID),
+        _ => parse_extension_numeric_type(value, field),
+    }
+}
+
+fn parse_extension_numeric_type(value: &str, field: &str) -> Result<u16, AdacError> {
+    let Some(value) = value.strip_prefix("0x") else {
+        return Err(AdacError::Encoding(format!(
+            "Value for {field} has invalid extension type"
+        )));
+    };
+    if value.len() != 4 {
+        return Err(AdacError::Encoding(format!(
+            "Value for {field} extension type must have 4 hexadecimal digits"
+        )));
+    }
+    u16::from_str_radix(value, 16).map_err(|_| {
+        AdacError::Encoding(format!(
+            "Value for {field} extension type is not properly hexadecimal encoded"
+        ))
+    })
+}
+
+fn parse_extension_value(value: &str, field: &str) -> Result<Vec<u8>, AdacError> {
+    if let Some(value) = value.strip_prefix("0x") {
+        return parse_extension_integer_value(value, field);
+    }
+    parse_base16_bytes_field(value, field)
+}
+
+fn parse_extension_integer_value(value: &str, field: &str) -> Result<Vec<u8>, AdacError> {
+    if !matches!(value.len(), 2 | 4 | 8 | 16 | 32) {
+        return Err(AdacError::Encoding(format!(
+            "Integer value for {field} must have 2, 4, 8, 16, or 32 hexadecimal digits"
+        )));
+    }
+    let mut bytes = hex::decode(value).map_err(|_| {
+        AdacError::Encoding(format!(
+            "Integer value for {field} is not properly hexadecimal encoded"
+        ))
+    })?;
+    bytes.reverse();
+    Ok(bytes)
+}
+
+fn validate_known_extension_value(
+    type_id: u16,
+    value: &[u8],
+    field: &str,
+) -> Result<(), AdacError> {
+    if type_id == EXTENSION_TYPE_SOC_ID && value.len() != 16 {
+        return Err(AdacError::Encoding(format!(
+            "Value for {field} soc_id extension must be 16 bytes"
+        )));
+    }
+    Ok(())
 }
 
 fn validate_certificate_config(config: &AdacCertificateConfig) -> Result<(), AdacError> {
@@ -602,7 +768,7 @@ usage = 1
 [extensions]
 soc_id = "0x00112233445566778899AABB00000000"
 permissions_mask = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
-extensions = "0102030405060708090a0b0c0d0e0f"
+extensions = "0000341201000000aa000000"
 "#;
         let c = parse_adac_configuration(config, None).unwrap();
         assert_eq!(c.format_version, AdacVersion { major: 1, minor: 0 });
@@ -642,7 +808,7 @@ extensions = "0102030405060708090a0b0c0d0e0f"
         );
         assert_eq!(
             c.extensions,
-            hex::decode("0102030405060708090a0b0c0d0e0f").unwrap()
+            hex::decode("0000341201000000aa000000").unwrap()
         );
     }
 
@@ -732,7 +898,7 @@ requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
 [token]
 version_minor = 1
 requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
-extensions = "01020304"
+extensions = "0000341201000000aa000000"
 "#;
 
         let c = parse_adac_token_configuration(config, None).unwrap();
@@ -749,7 +915,10 @@ extensions = "01020304"
             c.requested_permissions,
             0x00000000FFFFFFFFFFFFFFFFFFFFFFFFu128.to_le_bytes()
         );
-        assert_eq!(c.extensions, hex::decode("01020304").unwrap());
+        assert_eq!(
+            c.extensions,
+            hex::decode("0000341201000000aa000000").unwrap()
+        );
     }
 
     #[test]
@@ -819,6 +988,149 @@ version_major = 0
         assert!(matches!(
             err,
             AdacError::Encoding(message) if message == "Invalid values for version_major"
+        ));
+    }
+
+    #[test]
+    fn certificate_config_accepts_structured_extension_array() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 1
+role = 3
+usage = 0
+lifecycle = 0
+oem_constraint = 0
+soc_class = 0
+soc_id = "0x00000000000000000000000000000000"
+permissions_mask = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = [
+    "0000341201000000aa000000",
+    "critical:target_identity:c32e95a1643f7afe",
+    "0x0003:0x01020304",
+]
+"#;
+
+        let c = parse_adac_configuration(config, None).unwrap();
+
+        let mut expected = adac::tlv_wrap(0x1234, vec![0xaa]);
+        expected.extend(adac::tlv_wrap_with_flags(
+            EXTENSION_TYPE_TARGET_IDENTITY,
+            adac::TLV_FLAG_CRITICAL,
+            hex::decode("c32e95a1643f7afe").unwrap().as_slice(),
+        ));
+        expected.extend(adac::tlv_wrap(0x0003, vec![0x04, 0x03, 0x02, 0x01]));
+        assert_eq!(c.extensions, expected);
+    }
+
+    #[test]
+    fn certificate_config_rejects_soc_id_extension_name() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 1
+role = 3
+usage = 0
+lifecycle = 0
+oem_constraint = 0
+soc_class = 0
+soc_id = "0x00000000000000000000000000000000"
+permissions_mask = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = "soc_id:00112233445566778899aabbccddeeff"
+"#;
+
+        let err = parse_adac_configuration(config, None).unwrap_err();
+
+        assert!(matches!(
+            err,
+            AdacError::Encoding(message)
+                if message == "Value for default 'extensions' uses token-only extension 'soc_id'"
+        ));
+    }
+
+    #[test]
+    fn token_config_accepts_structured_soc_id_extension() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 1
+requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = "critical:soc_id:3be6e4b3ae8692b396ed1a8e0d0c0b0a"
+"#;
+
+        let c = parse_adac_token_configuration(config, None).unwrap();
+
+        assert_eq!(
+            c.extensions,
+            adac::tlv_wrap_with_flags(
+                EXTENSION_TYPE_SOC_ID,
+                adac::TLV_FLAG_CRITICAL,
+                hex::decode("3be6e4b3ae8692b396ed1a8e0d0c0b0a")
+                    .unwrap()
+                    .as_slice(),
+            )
+        );
+    }
+
+    #[test]
+    fn extension_array_item_must_be_single_tlv() {
+        let mut two_tlvs = adac::tlv_wrap(0x1234, vec![0xaa]);
+        two_tlvs.extend(adac::tlv_wrap(0x1235, vec![0xbb]));
+        let config = format!(
+            r#"
+[defaults]
+version_major = 1
+version_minor = 1
+requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = ["{}"]
+"#,
+            base16ct::lower::encode_string(two_tlvs.as_slice())
+        );
+
+        let err = parse_adac_token_configuration(&config, None).unwrap_err();
+
+        assert!(matches!(
+            err,
+            AdacError::Encoding(message)
+                if message == "Value for default 'extensions'[0] must encode exactly one TLV"
+        ));
+    }
+
+    #[test]
+    fn extension_integer_value_requires_supported_width() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 1
+requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = "0x0003:0x010203"
+"#;
+
+        let err = parse_adac_token_configuration(config, None).unwrap_err();
+
+        assert!(matches!(
+            err,
+            AdacError::Encoding(message)
+                if message == "Integer value for default 'extensions' must have 2, 4, 8, 16, or 32 hexadecimal digits"
+        ));
+    }
+
+    #[test]
+    fn extension_legacy_string_must_be_tlv_sequence() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 0
+requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = "01020304"
+"#;
+
+        let err = parse_adac_token_configuration(config, None).unwrap_err();
+
+        assert!(matches!(
+            err,
+            AdacError::Encoding(message)
+                if message == "Value for default 'extensions' is not a valid TLV sequence: InvalidLength"
         ));
     }
 

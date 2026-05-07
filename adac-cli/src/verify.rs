@@ -199,6 +199,7 @@ pub fn verify_command(
     }
 
     let mut token_effective_permissions = None;
+    let mut token_effective_soc_id = None;
     let mut token = if let (Some(token), Some(challenge)) = (token, challenge) {
         let token = token::read_token(token.as_slice()).map_err(|e| {
             error_count += 1;
@@ -215,6 +216,7 @@ pub fn verify_command(
         let signature_verified = errors.is_empty();
         error_count += errors.len() as u64;
         token_effective_permissions = token_result.effective_permissions;
+        token_effective_soc_id = token_result.effective_soc_id;
         Some(TokenVerification {
             signature_verified,
             errors,
@@ -261,7 +263,7 @@ pub fn verify_command(
     let usage = validation.effective.usage;
     let lifecycle = validation.effective.lifecycle;
     let oem_constraint = validation.effective.oem_constraint;
-    let soc_id = validation.effective.soc_id;
+    let soc_id = token_effective_soc_id.unwrap_or(validation.effective.soc_id);
     let soc_class = validation.effective.soc_class;
     let policies = validation.effective.policies;
 

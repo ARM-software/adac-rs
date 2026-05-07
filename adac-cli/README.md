@@ -501,7 +501,7 @@ The settings and their values are described below and in the
 | soc_class | SoC family/class | Vendor-defined identifier for a family/revision of devices; can scope the cert to a device class. | 0 |
 | soc_id | Unique SoC identifier | 128‑bit device-unique ID (e.g., serial/OTP). Non-zero value locks the certificate to one device. | 0x00000000000000000000000000000000 |
 | permissions_mask | Allowed debug permissions | Bit mask of logical permissions this certificate permits. Combined with other certificates and SoC masks to compute effective permissions. | 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF |
-| extensions | Optional TLV extensions | Optional fields (e.g., sw_partition_id, target_identity) as base16-encoded bytes without a `0x` prefix. Empty means no extra constraints. |  |
+| extensions | Optional TLV extensions | Empty string, a base16-encoded TLV sequence, one structured extension string, or an array of single TLV/structured extension strings. Structured values are padded automatically according to TLV rules. Raw TLV bytes must already include valid TLV padding. | `["target_identity:c32e95a1643f7afe", "0x8000:010203"]` |
 
 Example configuration:
 ```
@@ -549,7 +549,7 @@ For `token-sign` and `token-offline-prepare`, the positional `[PERMISSIONS]` arg
 | version_major | Token format version (major) | Must be `1`. | 1 |
 | version_minor | Token format version (minor) | Currently `0` or `1`. | 1 |
 | requested_permissions | Requested debug permissions | A 16-byte hexadecimal integer with a lowercase `0x` prefix. | `0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF` |
-| extensions | Optional TLV extensions | Raw extension bytes as a base16 string without a `0x` prefix. Use an empty string when no extensions are needed. | `01020304` |
+| extensions | Optional TLV extensions | Empty string, a base16-encoded TLV sequence, one structured extension string, or an array of single TLV/structured extension strings. Structured values are padded automatically according to TLV rules. Raw TLV bytes must already include valid TLV padding. Token-only `soc_id` is accepted here. | `"critical:soc_id:3be6e4b3ae8692b396ed1a8e0d0c0b0a"` |
 
 Example configuration:
 ```
@@ -562,8 +562,17 @@ extensions = ""
 [token]
 version_minor = 1
 requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
-extensions = "01020304"
+extensions = [
+    "critical:soc_id:3be6e4b3ae8692b396ed1a8e0d0c0b0a",
+    "sw_partition_id:01020304",
+]
 ```
+
+Extension syntax:
+- Existing raw string compatibility is retained: `extensions = "0000341201000000aa000000"` is interpreted as a complete base16-encoded TLV sequence.
+- Array items without `:` are interpreted as complete base16-encoded single TLVs. Array items with `:` use the structured syntax and each produce exactly one TLV.
+- Structured syntax is `[critical:]TYPE:VALUE`. `TYPE` is `target_identity`, `sw_partition_id`, token-only `soc_id`, or a numeric `0xNNNN` type ID.
+- `VALUE` without a prefix is raw base16 bytes. `VALUE` with `0x` is an integer encoded as little-endian TLV value bytes and must use exactly 2, 4, 8, 16, or 32 hex digits.
 
 ## License
 
