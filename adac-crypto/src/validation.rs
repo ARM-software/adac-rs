@@ -7,6 +7,8 @@ use adac::{
 };
 use std::fmt;
 
+const TOKEN_SOC_ID_EXTENSION_TYPE: u16 = 0x0004;
+
 /// Chain-validation behavior knobs.
 ///
 /// The default policy accepts chains that do not terminate in a Leaf certificate
@@ -50,6 +52,9 @@ pub enum ValidationIssue {
     TokenVerificationFailed {
         source: String,
     },
+    TokenSocIdExtensionInvalidLength {
+        length: usize,
+    },
 }
 
 impl ValidationIssue {
@@ -83,6 +88,9 @@ impl ValidationIssue {
             Self::TokenKeyTypeMismatch => "Token signature algorithm does not match".to_string(),
             Self::TokenVerificationFailed { source } => {
                 format!("Token signature verification failed: {source}")
+            }
+            Self::TokenSocIdExtensionInvalidLength { length } => {
+                format!("Token SoC ID extension has invalid length {length}")
             }
         }
     }
@@ -166,6 +174,7 @@ impl ChainValidationResult {
 pub struct TokenValidationResult {
     pub errors: Vec<ValidationIssue>,
     pub effective_permissions: Option<[u8; 16]>,
+    pub effective_soc_id: Option<[u8; 16]>,
 }
 
 impl TokenValidationResult {
@@ -240,6 +249,7 @@ impl<'a> ChainValidator<'a> {
         let mut result = TokenValidationResult {
             errors: Vec::new(),
             effective_permissions: None,
+            effective_soc_id: None,
         };
 
         let Some(public_key) = self.previous_public_key.as_deref() else {
@@ -267,7 +277,48 @@ impl<'a> ChainValidator<'a> {
             *permission &= requested_permissions[i];
         }
         result.effective_permissions = Some(effective_permissions);
+        self.update_effective_token_constraints(token, &mut result);
         result
+    }
+
+    fn update_effective_token_constraints(
+        &self,
+        token: &AdacToken,
+        result: &mut TokenValidationResult,
+    ) {
+        let mut effective_soc_id = self.effective.soc_id;
+        for tlv in match adac::parse_tlv_sequence(token.get_extensions()) {
+            Ok(tlvs) => tlvs,
+            Err(_) => return,
+        } {
+            let type_id = tlv.header.type_id;
+            if type_id != TOKEN_SOC_ID_EXTENSION_TYPE {
+                continue;
+            }
+            if tlv.value.len() != 16 {
+                result
+                    .errors
+                    .push(ValidationIssue::TokenSocIdExtensionInvalidLength {
+                        length: tlv.value.len(),
+                    });
+                continue;
+            }
+
+            let mut soc_id = [0u8; 16];
+            soc_id.copy_from_slice(tlv.value);
+            if effective_soc_id == [0u8; 16] {
+                effective_soc_id = soc_id;
+            } else if soc_id != [0u8; 16] && effective_soc_id != soc_id {
+                result.errors.push(ValidationIssue::SocIdMismatch {
+                    previous: effective_soc_id,
+                    current: soc_id,
+                });
+            }
+        }
+
+        if effective_soc_id != [0u8; 16] {
+            result.effective_soc_id = Some(effective_soc_id);
+        }
     }
 
     pub fn finish(mut self) -> ChainValidationResult {

@@ -138,6 +138,10 @@ usage = 1
 soc_id = "0x00112233445566778899aabbccddeeff"
 policies = 0x2
 
+[leaf]
+usage = 1
+policies = 0x2
+
 [leaf_conflict]
 usage = 1
 lifecycle = 0x4000

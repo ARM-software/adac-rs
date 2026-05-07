@@ -197,6 +197,68 @@ role = 1
 }
 
 #[test]
+fn verify_command_reports_token_soc_id_extension() {
+    let dir = common::make_temp_dir("adac-cli-verify-tests");
+    let chain_path = common::write_signed_chain(
+        &dir,
+        "inter_usage_lifecycle",
+        "inter_soc_class_policy",
+        "leaf",
+        "no-soc-id.pem",
+    );
+    let config_path = dir.join("token-soc-id.toml");
+    fs::write(
+        &config_path,
+        r#"
+[defaults]
+version_major = 1
+version_minor = 1
+requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = "critical:soc_id:3be6e4b3ae8692b396ed1a8e0d0c0b0a"
+"#,
+    )
+    .unwrap();
+    let private_path = common::fixture_path("keys", "EcdsaP384Key-3.pk8");
+    let token_path = dir.join("token.bin");
+
+    token_sign_command(
+        common::TOKEN_CHALLENGE,
+        &Some(config_path),
+        &Some(token_path.clone()),
+        &None,
+        &Some(private_path),
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+    )
+    .unwrap();
+
+    let output = verify_command(
+        &chain_path,
+        &Some(token_path),
+        &Some(common::TOKEN_CHALLENGE.to_string()),
+        true,
+    )
+    .unwrap();
+
+    let CommandOutput::Verify(report) = output else {
+        panic!("unexpected command output");
+    };
+    assert_eq!(report.error_count, 0);
+    assert!(report.summary.iter().any(|line| {
+        line == "Restricted to SoC ID: 0x0a0b0c0d8e1aed96b39286aeb3e4e63b (3be6e4b3ae8692b396ed1a8e0d0c0b0a)"
+    }));
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 fn verify_command_reports_effective() {
     let dir = common::make_temp_dir("adac-cli-verify-tests");
     let chain_path = common::write_signed_chain(

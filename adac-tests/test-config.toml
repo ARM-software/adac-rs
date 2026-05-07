@@ -8,6 +8,7 @@ oem_constraint = 0
 soc_class = 0
 soc_id = "0x00000000000000000000000000000000"
 permissions_mask = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
 extensions = ""
 
 [root]
@@ -16,6 +17,26 @@ role = 1
 [intermediate]
 role = 2
 soc_class = 0x01020304
+
+[intermediate_effective]
+role = 2
+usage = 1
+lifecycle = 0x3000
+
+[intermediate_policy]
+role = 2
+usage = 1
+soc_class = 0x12345678
+policies = 0x1
+
+[leaf]
+usage = 1
+policies = 0x2
+
+[leaf_soc_id]
+usage = 1
+soc_id = "0x00112233445566778899aabbccddeeff"
+policies = 0x2
 
 [crt1]
 soc_id = "0x0a0b0c0d8e1aed96b39286aeb3e4e63b"
@@ -29,3 +50,12 @@ permissions_mask = "0x8000000003FFFFFFFFFFFFFF00000000"
 soc_id = "0x0a0b0c0d8e1aed96b39286aeb3e4e63b"
 usage = 2
 permissions_mask = "0x00000000000000000000000000000000"
+
+[token]
+version_minor = 1
+requested_permissions = "0x00000000FFFFFFFFFFFFFFFFFFFFFFFF"
+
+[token_soc_id]
+version_minor = 1
+requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = "critical:soc_id:3be6e4b3ae8692b396ed1a8e0d0c0b0a"
