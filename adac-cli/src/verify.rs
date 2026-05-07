@@ -3,10 +3,13 @@
 
 use crate::{CommandError, CommandOutput, token};
 use adac::CertificateUsage;
-use adac_crypto::encoding::{EncodingIssue, validate_certificate_chain, validate_token};
+use adac_crypto::encoding::{
+    EncodingIssue, EncodingValidationPolicy, validate_certificate_chain_with_policy,
+    validate_token_with_policy,
+};
 use adac_crypto::public::AdacPublicKey;
 use adac_crypto::utils::{read_certificate_chain_bytes, read_certificates};
-use adac_crypto::validation::ChainValidator;
+use adac_crypto::validation::{ChainValidationPolicy, ChainValidator};
 use serde::Serialize;
 use sha2::Digest;
 use sha2::digest::Update;
@@ -38,7 +41,10 @@ impl VerificationReport {
             }
         }
         if let Some(token) = &self.token {
-            if token.errors.is_empty() {
+            if token.signature_verified {
+                writeln!(out, "Token signature verified")?;
+            }
+            if token.signature_verified && token.errors.is_empty() && self.error_count == 0 {
                 writeln!(out, "Token verified")?;
             }
             for error in &token.errors {
@@ -90,6 +96,7 @@ pub struct CertificateVerification {
 
 #[derive(Debug, Serialize)]
 pub struct TokenVerification {
+    pub signature_verified: bool,
     pub errors: Vec<String>,
 }
 
@@ -97,7 +104,9 @@ pub fn verify_command(
     path: &PathBuf,
     token: &Option<PathBuf>,
     challenge: &Option<String>,
+    strict: bool,
 ) -> anyhow::Result<CommandOutput, CommandError> {
+    let verify_token = token.is_some();
     let contents = std::fs::read_to_string(path).map_err(|e| CommandError::AdacError {
         source: anyhow::anyhow!("Error reading certificate chain: {:?}", e),
     })?;
@@ -105,10 +114,14 @@ pub fn verify_command(
         read_certificate_chain_bytes(contents.as_str()).map_err(|e| CommandError::AdacError {
             source: anyhow::anyhow!("Error decoding certificate chain: {:?}", e),
         })?;
-    let mut encoding_errors = validate_certificate_chain(certificate_chain_bytes.as_slice())
-        .into_iter()
-        .map(EncodingVerification::from)
-        .collect::<Vec<_>>();
+    let encoding_policy = EncodingValidationPolicy {
+        reject_critical_extensions: strict,
+    };
+    let mut encoding_errors =
+        validate_certificate_chain_with_policy(certificate_chain_bytes.as_slice(), encoding_policy)
+            .into_iter()
+            .map(EncodingVerification::from)
+            .collect::<Vec<_>>();
 
     let chain = match read_certificates(contents) {
         Ok(chain) => chain,
@@ -145,7 +158,7 @@ pub fn verify_command(
             source: anyhow::anyhow!("Error loading token: {:?}", e),
         })?;
         encoding_errors.extend(
-            validate_token(contents.as_slice())
+            validate_token_with_policy(contents.as_slice(), encoding_policy)
                 .into_iter()
                 .map(EncodingVerification::from),
         );
@@ -162,7 +175,10 @@ pub fn verify_command(
 
     let mut error_count = encoding_errors.len() as u64;
     let crypto = adac_crypto_rust::RustCryptoProvider::default();
-    let mut validator = ChainValidator::new(&crypto);
+    let validation_policy = ChainValidationPolicy {
+        require_leaf_last: strict && verify_token,
+    };
+    let mut validator = ChainValidator::with_policy(validation_policy, &crypto);
 
     let mut certificates = vec![];
 
@@ -183,7 +199,7 @@ pub fn verify_command(
     }
 
     let mut token_effective_permissions = None;
-    let token = if let (Some(token), Some(challenge)) = (token, challenge) {
+    let mut token = if let (Some(token), Some(challenge)) = (token, challenge) {
         let token = token::read_token(token.as_slice()).map_err(|e| {
             error_count += 1;
             CommandError::AdacError {
@@ -196,15 +212,25 @@ pub fn verify_command(
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>();
+        let signature_verified = errors.is_empty();
         error_count += errors.len() as u64;
         token_effective_permissions = token_result.effective_permissions;
-        Some(TokenVerification { errors })
+        Some(TokenVerification {
+            signature_verified,
+            errors,
+        })
     } else {
         None
     };
 
     let validation = validator.finish();
     error_count += validation.chain_errors.len() as u64;
+    let chain_error_count = validation.chain_errors.len()
+        + validation
+            .certificates
+            .iter()
+            .map(|certificate| certificate.errors.len())
+            .sum::<usize>();
     for certificate in &validation.certificates {
         let errors = certificate
             .errors
@@ -213,6 +239,16 @@ pub fn verify_command(
             .collect::<Vec<_>>();
         error_count += errors.len() as u64;
         certificates[certificate.index].errors = errors;
+    }
+    if let Some(token) = &mut token
+        && token.signature_verified
+        && chain_error_count != 0
+    {
+        token.errors.push(
+            "Token signature verifies, but token validation failed because the certificate chain is invalid"
+                .to_string(),
+        );
+        error_count += 1;
     }
 
     let permissions = token_effective_permissions.unwrap_or(validation.effective.permissions);

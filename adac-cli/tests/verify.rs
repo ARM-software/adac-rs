@@ -40,6 +40,7 @@ fn verify_command_verifies_token_and_masks_permissions() {
         &chain_path,
         &Some(token_path),
         &Some(common::TOKEN_CHALLENGE.to_string()),
+        false,
     )
     .unwrap();
 
@@ -51,7 +52,7 @@ fn verify_command_verifies_token_and_masks_permissions() {
         report
             .token
             .as_ref()
-            .is_some_and(|token| token.errors.is_empty())
+            .is_some_and(|token| token.signature_verified && token.errors.is_empty())
     );
 
     let chain = load_certificates(&chain_path).unwrap();
@@ -79,6 +80,123 @@ fn verify_command_verifies_token_and_masks_permissions() {
 }
 
 #[test]
+fn verify_command_strict_requires_token_signed_by_leaf() {
+    let dir = common::make_temp_dir("adac-cli-verify-tests");
+    let config_path = common::write_token_config(&dir);
+    let chain_path = common::write_chain_ending_at_intermediate(&dir, "inter-chain.pem");
+    let private_path = common::fixture_path("keys", "EcdsaP384Key-1.pk8");
+    let token_path = dir.join("token.bin");
+
+    token_sign_command(
+        common::TOKEN_CHALLENGE,
+        &Some(config_path),
+        &Some(token_path.clone()),
+        &None,
+        &Some(private_path),
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &None,
+        &Some("token".to_string()),
+    )
+    .unwrap();
+
+    let output = verify_command(
+        &chain_path,
+        &Some(token_path.clone()),
+        &Some(common::TOKEN_CHALLENGE.to_string()),
+        false,
+    )
+    .unwrap();
+    let CommandOutput::Verify(report) = output else {
+        panic!("unexpected command output");
+    };
+    assert_eq!(report.error_count, 0);
+    assert!(
+        report
+            .token
+            .as_ref()
+            .is_some_and(|token| token.signature_verified && token.errors.is_empty())
+    );
+
+    let output = verify_command(
+        &chain_path,
+        &Some(token_path),
+        &Some(common::TOKEN_CHALLENGE.to_string()),
+        true,
+    )
+    .unwrap();
+    let CommandOutput::Verify(report) = output else {
+        panic!("unexpected command output");
+    };
+    assert!(report.error_count > 0);
+    assert!(report.certificates.iter().any(|certificate| {
+        certificate
+            .errors
+            .iter()
+            .any(|error| error == "Last certificate does not have Leaf role")
+    }));
+    assert!(report.token.as_ref().is_some_and(|token| {
+        token.signature_verified
+            && token.errors.iter().any(|error| {
+                error == "Token signature verifies, but token validation failed because the certificate chain is invalid"
+            })
+    }));
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
+fn verify_command_strict_rejects_critical_certificate_extensions() {
+    let dir = common::make_temp_dir("adac-cli-verify-tests");
+    let config_path = dir.join("critical-extension.toml");
+    fs::write(
+        &config_path,
+        r#"
+[defaults]
+version_major = 1
+version_minor = 1
+role = 1
+usage = 0
+lifecycle = 0
+oem_constraint = 0
+soc_class = 0
+soc_id = "0x00000000000000000000000000000000"
+permissions_mask = "0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = "0100341201000000aa000000"
+
+[root]
+role = 1
+"#,
+    )
+    .unwrap();
+    let chain_path = common::write_root_certificate(&dir, &config_path, "root.pem");
+
+    let output = verify_command(&chain_path, &None, &None, false).unwrap();
+    let CommandOutput::Verify(report) = output else {
+        panic!("unexpected command output");
+    };
+    assert_eq!(report.error_count, 0);
+
+    let output = verify_command(&chain_path, &None, &None, true).unwrap();
+    let CommandOutput::Verify(report) = output else {
+        panic!("unexpected command output");
+    };
+    assert_eq!(report.error_count, 1);
+    assert!(
+        report.encoding_errors.iter().any(|error| {
+            error.message == "Unknown or unprocessed critical extension type 0x1234"
+        })
+    );
+
+    let _ = fs::remove_dir_all(dir);
+}
+
+#[test]
 fn verify_command_reports_effective() {
     let dir = common::make_temp_dir("adac-cli-verify-tests");
     let chain_path = common::write_signed_chain(
@@ -89,7 +207,7 @@ fn verify_command_reports_effective() {
         "restricted.pem",
     );
 
-    let output = verify_command(&chain_path, &None, &None).unwrap();
+    let output = verify_command(&chain_path, &None, &None, false).unwrap();
 
     let CommandOutput::Verify(report) = output else {
         panic!("unexpected command output");
@@ -139,7 +257,7 @@ fn verify_command_rejects_conflicting() {
         "conflict.pem",
     );
 
-    let output = verify_command(&chain_path, &None, &None).unwrap();
+    let output = verify_command(&chain_path, &None, &None, false).unwrap();
 
     let CommandOutput::Verify(report) = output else {
         panic!("unexpected command output");
@@ -181,7 +299,7 @@ fn verify_command_reports_certificate_chain_encoding_errors() {
     );
     fs::write(&chain_path, pem).unwrap();
 
-    let output = verify_command(&chain_path, &None, &None).unwrap();
+    let output = verify_command(&chain_path, &None, &None, false).unwrap();
 
     let CommandOutput::Verify(report) = output else {
         panic!("unexpected command output");

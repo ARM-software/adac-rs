@@ -95,6 +95,10 @@ impl AdacCertificate {
         } {
             return Err(AdacError::InvalidLength);
         }
+        crate::validate_tlv_flags_for_version(
+            header.format_version,
+            &certificate[fixed..(fixed + header.extensions_bytes as usize)],
+        )?;
 
         crate::validate_public_key_padding(
             key_type,
@@ -139,10 +143,12 @@ impl AdacCertificate {
         crate::validate_public_key_padding(key_type, public_key)?;
 
         let (extension_len, extension_hash) = match extensions {
-            Some(extensions) => (
-                extensions.len() as u32,
-                provider.hash(key_type, extensions)?,
-            ),
+            Some(extensions) => {
+                let extension_len =
+                    u32::try_from(extensions.len()).map_err(|_| AdacError::InvalidLength)?;
+                crate::validate_tlv_flags_for_version(header.format_version, extensions)?;
+                (extension_len, provider.hash(key_type, extensions)?)
+            }
             None => (0u32, vec![0u8; hash_size]),
         };
         header.extensions_bytes = extension_len;

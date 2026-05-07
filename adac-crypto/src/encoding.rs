@@ -7,6 +7,11 @@ use adac::{
 
 const CERTIFICATE_TLV_TYPE: u16 = 0x0201;
 
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+pub struct EncodingValidationPolicy {
+    pub reject_critical_extensions: bool,
+}
+
 /// Encoding diagnostic with a decoded-byte offset and human-readable context.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EncodingIssue {
@@ -42,6 +47,7 @@ struct TlvSpan {
     value_offset: usize,
     value_len: usize,
     type_id: u16,
+    flags: u8,
 }
 
 /// Validate decoded ADAC TLV sequence bytes.
@@ -57,10 +63,17 @@ pub fn validate_tlvs(content: &[u8]) -> Vec<EncodingIssue> {
 ///
 /// Offsets are relative to `certificate`.
 pub fn validate_certificate(certificate: &[u8]) -> Vec<EncodingIssue> {
+    validate_certificate_with_policy(certificate, EncodingValidationPolicy::default())
+}
+
+pub fn validate_certificate_with_policy(
+    certificate: &[u8],
+    policy: EncodingValidationPolicy,
+) -> Vec<EncodingIssue> {
     let mut issues = Vec::<EncodingIssue>::new();
     match AdacCertificate::from_bytes(certificate.to_vec()) {
         Ok(certificate) => {
-            validate_certificate_extensions(&certificate, 0, "certificate", &mut issues)
+            validate_certificate_extensions(&certificate, 0, "certificate", policy, &mut issues)
         }
         Err(e) => issues.push(EncodingIssue::new(
             0,
@@ -75,6 +88,13 @@ pub fn validate_certificate(certificate: &[u8]) -> Vec<EncodingIssue> {
 ///
 /// Offsets are relative to `content`.
 pub fn validate_certificate_chain(content: &[u8]) -> Vec<EncodingIssue> {
+    validate_certificate_chain_with_policy(content, EncodingValidationPolicy::default())
+}
+
+pub fn validate_certificate_chain_with_policy(
+    content: &[u8],
+    policy: EncodingValidationPolicy,
+) -> Vec<EncodingIssue> {
     let mut issues = Vec::<EncodingIssue>::new();
     let tlvs = validate_tlv_sequence(content, 0, "certificate-chain", &mut issues);
     for (i, tlv) in tlvs.iter().enumerate() {
@@ -91,7 +111,7 @@ pub fn validate_certificate_chain(content: &[u8]) -> Vec<EncodingIssue> {
         let value = &content[tlv.value_offset..tlv.value_offset + tlv.value_len];
         let context = format!("certificate-chain.tlv[{i}].certificate");
         issues.extend(
-            validate_certificate(value)
+            validate_certificate_with_policy(value, policy)
                 .into_iter()
                 .map(|issue| issue.with_offset_and_context(tlv.value_offset, &context)),
         );
@@ -104,10 +124,17 @@ pub fn validate_certificate_chain(content: &[u8]) -> Vec<EncodingIssue> {
 ///
 /// Offsets are relative to `token`.
 pub fn validate_token(token: &[u8]) -> Vec<EncodingIssue> {
+    validate_token_with_policy(token, EncodingValidationPolicy::default())
+}
+
+pub fn validate_token_with_policy(
+    token: &[u8],
+    policy: EncodingValidationPolicy,
+) -> Vec<EncodingIssue> {
     let mut issues = Vec::<EncodingIssue>::new();
     validate_token_structure(token, &mut issues);
     if let Ok(token) = AdacToken::from_bytes(token.to_vec()) {
-        validate_token_extensions(&token, &mut issues);
+        validate_token_extensions(&token, policy, &mut issues);
     }
 
     issues
@@ -134,6 +161,7 @@ fn validate_tlv_sequence(
         }
 
         let reserved = bytes[1];
+        let flags = bytes[0];
         let type_id = u16::from_le_bytes([bytes[2], bytes[3]]);
         let length = u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
         let padding_len = tlv_padding_len(length);
@@ -159,6 +187,16 @@ fn validate_tlv_sequence(
                 offset + 1,
                 entry_context.clone(),
                 "Invalid nonzero TLV reserved field",
+            ));
+        }
+        if flags & !adac::TLV_KNOWN_FLAGS != 0 {
+            issues.push(EncodingIssue::new(
+                offset,
+                entry_context.clone(),
+                format!(
+                    "Invalid unknown TLV flag bits 0x{:02x}",
+                    flags & !adac::TLV_KNOWN_FLAGS
+                ),
             ));
         }
 
@@ -192,6 +230,7 @@ fn validate_tlv_sequence(
             value_offset,
             value_len: length,
             type_id,
+            flags,
         });
 
         bytes = &bytes[total_len..];
@@ -206,6 +245,7 @@ fn validate_certificate_extensions(
     certificate: &AdacCertificate,
     certificate_offset: usize,
     context: &str,
+    policy: EncodingValidationPolicy,
     issues: &mut Vec<EncodingIssue>,
 ) {
     let header = *certificate.header();
@@ -214,12 +254,13 @@ fn validate_certificate_extensions(
     }
     let extension_offset =
         certificate_offset + certificate.as_slice().len() - header.extensions_bytes as usize;
-    validate_tlv_sequence(
+    let spans = validate_tlv_sequence(
         certificate.get_extensions(),
         extension_offset,
         context,
         issues,
     );
+    validate_extension_policy(&spans, context, policy, issues);
 }
 
 fn validate_token_structure(token: &[u8], issues: &mut Vec<EncodingIssue>) {
@@ -288,18 +329,47 @@ fn validate_token_structure(token: &[u8], issues: &mut Vec<EncodingIssue>) {
     }
 }
 
-fn validate_token_extensions(token: &AdacToken, issues: &mut Vec<EncodingIssue>) {
+fn validate_token_extensions(
+    token: &AdacToken,
+    policy: EncodingValidationPolicy,
+    issues: &mut Vec<EncodingIssue>,
+) {
     let header = *token.header();
     if header.extensions_bytes == 0 {
         return;
     }
     let extension_offset = token.as_slice().len() - header.extensions_bytes as usize;
-    validate_tlv_sequence(
+    let spans = validate_tlv_sequence(
         token.get_extensions(),
         extension_offset,
         "token.extensions",
         issues,
     );
+    validate_extension_policy(&spans, "token.extensions", policy, issues);
+}
+
+fn validate_extension_policy(
+    spans: &[TlvSpan],
+    context: &str,
+    policy: EncodingValidationPolicy,
+    issues: &mut Vec<EncodingIssue>,
+) {
+    if !policy.reject_critical_extensions {
+        return;
+    }
+
+    for (i, span) in spans.iter().enumerate() {
+        if span.flags & adac::TLV_FLAG_CRITICAL != 0 {
+            issues.push(EncodingIssue::new(
+                span.value_offset.saturating_sub(AdacTlvHeader::SIZE),
+                format!("{context}.tlv[{i}]"),
+                format!(
+                    "Unknown or unprocessed critical extension type 0x{:04x}",
+                    span.type_id
+                ),
+            ));
+        }
+    }
 }
 
 fn tlv_padding_len(length: usize) -> usize {
@@ -340,6 +410,19 @@ mod tests {
     }
 
     #[test]
+    fn tlv_validator_reports_unknown_flag_bits() {
+        let bytes = adac::tlv_wrap_with_flags(0x1234, 0x80, b"abc");
+
+        let issues = validate_tlvs(&bytes);
+
+        assert!(
+            issues
+                .iter()
+                .any(|issue| issue.message == "Invalid unknown TLV flag bits 0x80")
+        );
+    }
+
+    #[test]
     fn certificate_validator_reports_certificate_issue() {
         let issues = validate_certificate(&[1, 2, 3]);
 
@@ -355,5 +438,24 @@ mod tests {
         let issues = validate_token(&[1, 2, 3]);
 
         assert!(issues.iter().any(|issue| issue.context == "token.header"));
+    }
+
+    #[test]
+    fn strict_tlv_policy_rejects_critical_extensions() {
+        let policy = EncodingValidationPolicy {
+            reject_critical_extensions: true,
+        };
+        let mut issues = Vec::new();
+        let spans = validate_tlv_sequence(
+            &adac::tlv_wrap_with_flags(0x1234, adac::TLV_FLAG_CRITICAL, b"abc"),
+            0,
+            "extensions",
+            &mut issues,
+        );
+        validate_extension_policy(&spans, "extensions", policy, &mut issues);
+
+        assert!(issues.iter().any(|issue| {
+            issue.message == "Unknown or unprocessed critical extension type 0x1234"
+        }));
     }
 }
