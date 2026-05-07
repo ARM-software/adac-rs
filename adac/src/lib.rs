@@ -390,6 +390,7 @@ pub struct AdacTlvHeader {
 }
 
 pub const TLV_FLAG_CRITICAL: u8 = 0x01;
+pub const TLV_KNOWN_FLAGS: u8 = TLV_FLAG_CRITICAL;
 
 #[derive(Debug, Copy, Clone)]
 pub struct AdacTlv<'a> {
@@ -462,6 +463,9 @@ pub fn parse_tlv_sequence(mut bytes: &[u8]) -> Result<Vec<AdacTlv<'_>>, AdacErro
         }
 
         let header = AdacTlvHeader::from_bytes(&bytes[..AdacTlvHeader::SIZE])?;
+        if header.flags & !TLV_KNOWN_FLAGS != 0 {
+            return Err(AdacError::Encoding("Invalid TLV flags".to_string()));
+        }
         let value_len = header.length as usize;
         let padded_value_len = header.padded_value_len()?;
         let total_len = AdacTlvHeader::SIZE
@@ -487,6 +491,20 @@ pub fn parse_tlv_sequence(mut bytes: &[u8]) -> Result<Vec<AdacTlv<'_>>, AdacErro
     }
 
     Ok(tlvs)
+}
+
+pub fn validate_tlv_flags_for_version(
+    version: AdacVersion,
+    extensions: &[u8],
+) -> Result<(), AdacError> {
+    for tlv in parse_tlv_sequence(extensions)? {
+        let flags = tlv.header.flags;
+        if version == (AdacVersion { major: 1, minor: 0 }) && flags != 0 {
+            return Err(AdacError::InconsistentVersion);
+        }
+    }
+
+    Ok(())
 }
 
 pub fn validate_format_version(version: AdacVersion) -> Result<(), AdacError> {
@@ -928,5 +946,28 @@ mod tests {
             parse_tlv_sequence(&bytes),
             Err(AdacError::InvalidPadding)
         ));
+    }
+
+    #[test]
+    fn tlv_sequence_parser_rejects_unknown_flags() {
+        let bytes = tlv_wrap_with_flags(0x1234, 0x80, b"abc");
+
+        assert!(matches!(
+            parse_tlv_sequence(&bytes),
+            Err(AdacError::Encoding(message)) if message == "Invalid TLV flags"
+        ));
+    }
+
+    #[test]
+    fn version_1_0_rejects_flagged_extension_tlvs() {
+        let extensions = tlv_wrap_with_flags(0x1234, TLV_FLAG_CRITICAL, b"abc");
+
+        assert!(matches!(
+            validate_tlv_flags_for_version(AdacVersion { major: 1, minor: 0 }, &extensions),
+            Err(AdacError::InconsistentVersion)
+        ));
+        assert!(
+            validate_tlv_flags_for_version(AdacVersion { major: 1, minor: 1 }, &extensions).is_ok()
+        );
     }
 }

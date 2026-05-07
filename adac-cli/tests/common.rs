@@ -241,3 +241,21 @@ pub fn write_signed_chain(
 
     chain_path
 }
+
+pub fn write_chain_ending_at_intermediate(dir: &Path, output_name: &str) -> PathBuf {
+    let config_path = write_verify_config(dir);
+    let inter_public = write_public_key_from_private(dir, "EcdsaP384Key-1.pk8", "inter.pub");
+    let root_path = write_root_certificate(dir, &config_path, "root.pem");
+    let chain_path = dir.join(output_name);
+
+    sign_certificate(
+        &config_path,
+        Some(&root_path),
+        &chain_path,
+        "EcdsaP384Key-0.pk8",
+        &inter_public,
+        "inter_usage_lifecycle",
+    );
+
+    chain_path
+}

@@ -333,7 +333,10 @@ enum Commands {
         /// Path to the certificate or certificate chain to verify.
         #[arg(value_name = "INPUT")]
         input: PathBuf,
-        /// Path to an authentication token to verify against the leaf certificate public key.
+        /// Enforce stricter ADAC validation rules.
+        #[arg(long)]
+        strict: bool,
+        /// Path to an authentication token to verify against the last certificate public key.
         #[arg(short, long, value_name = "TOKEN")]
         token: Option<PathBuf>,
         /// Token challenge as 32 base16-encoded bytes.
@@ -551,9 +554,10 @@ fn wrapped_main(cli: &Cli) -> Result<i32> {
         } => token::token_merge_command(input, signature, output, challenge, chain),
         Commands::Verify {
             input,
+            strict,
             token,
             challenge,
-        } => verify::verify_command(input, token, challenge),
+        } => verify::verify_command(input, token, challenge, *strict),
     }
     .with_context(|| format!("{} command failed", cli.cmd.name()))?;
 

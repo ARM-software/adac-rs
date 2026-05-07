@@ -72,11 +72,17 @@ impl AdacToken {
 
         let (hash_size, sig_size) = crate::token::adac_sizes_from_crypto(key_type)?;
 
-        if Self::HEADER_SIZE + hash_size + sig_size + (header.extensions_bytes as usize)
-            != token.len()
-        {
+        let fixed = Self::HEADER_SIZE + hash_size + sig_size;
+        if match fixed.checked_add(header.extensions_bytes as usize) {
+            None => true,
+            Some(l) => l != token.len(),
+        } {
             return Err(AdacError::InvalidLength);
         }
+        crate::validate_tlv_flags_for_version(
+            header.format_version,
+            &token[fixed..(fixed + header.extensions_bytes as usize)],
+        )?;
 
         Ok(Self {
             token,
@@ -138,7 +144,9 @@ impl AdacToken {
 
         let extension_hash = match extensions {
             Some(extensions) => {
-                h.extensions_bytes = extensions.len() as u32;
+                h.extensions_bytes =
+                    u32::try_from(extensions.len()).map_err(|_| AdacError::InvalidLength)?;
+                crate::validate_tlv_flags_for_version(h.format_version, extensions)?;
                 provider.hash(key_type, extensions)?
             }
             None => {

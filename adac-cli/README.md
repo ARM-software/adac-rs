@@ -451,9 +451,9 @@ adac-cli token-offline-merge \
 
 ### verify: Verify certificate chain content.
 
-Use this subcommand to verify the integrity of a certificate or all the certificates in a chain. It can also verify an authentication token against the leaf certificate public key.
+Use this subcommand to diagnose the integrity of a certificate or all the certificates in a chain. It can also verify an authentication token signature against the last certificate public key.
 
-Verification checks that the supplied chain is internally consistent: each certificate is verified against the preceding certificate, starting from the root certificate included in the input. It does not determine whether that root certificate is trustworthy or matches an expected deployment root.
+Verification checks that the supplied chain is internally consistent: each certificate is verified against the preceding certificate, starting from the root certificate included in the input. It does not determine whether that root certificate is trustworthy, whether it matches an expected deployment root, or whether the chain satisfies all target-specific operational policy.
 
 For ADAC 1.1 certificates, verification reports the effective certificate policies when any policy bit is non-zero. Policy semantics are external to chain validation: `verify` reports the computed value but does not enforce policy-specific behavior.
 
@@ -467,9 +467,10 @@ Positional arguments:
 | Flag | Description | Example | Default |
 |------|-------------|---------|---------|
 | `-c, --challenge` | Token challenge as a 32-byte base16 string without a `0x` prefix. Must be provided together with `--token`. | `--challenge 00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff` | none |
-| `-t, --token` | Path to an authentication token to verify against the leaf certificate public key. Must be provided together with `--challenge`. | `--token token.bin` | none |
+| `--strict` | Apply stricter local diagnostic rules: token validation requires the chain to end in a leaf certificate, and certificates or tokens with unknown or unprocessed critical extensions are reported as errors. This is not authoritative target-specific extension validation. | `--strict` | disabled |
+| `-t, --token` | Path to an authentication token to verify against the last certificate public key. Must be provided together with `--challenge`. Use `--strict` to require that last certificate to be a leaf. | `--token token.bin` | none |
 
-The adac-cli exit status will be non-zero if the chain or token does not verify successfully.
+The adac-cli exit status will be non-zero if the chain or token does not verify successfully. Without `--strict`, token signature verification uses the last certificate in the chain and does not require that certificate to be a leaf.
 
 Example commands:
 ```
