@@ -308,7 +308,9 @@ pub fn parse_adac_configuration(
     }
 
     if let Some(policies) = sec.get("policies") {
-        let policies = policies.as_integer().unwrap_or(0);
+        let policies = policies.as_integer().ok_or(AdacError::Encoding(
+            "Value for 'policies' is not integer".to_string(),
+        ))?;
 
         c.policies = if (policies > u16::MAX as i64) || policies < 0 {
             return Err(AdacError::Encoding(format!(
