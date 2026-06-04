@@ -129,6 +129,9 @@ pub fn get_sec1_bytes_from_adac(
     if key_type == Ed448Shake256 {
         Ok(adac::validate_public_key_padding(key_type, public_key)?.to_vec())
     } else if key_type == Ed25519Sha512 {
+        if public_key.len() != ED25519_PUBLIC_KEY_SIZE {
+            return Err(AdacError::InvalidLength);
+        }
         Ok(public_key[0..ED25519_PUBLIC_KEY_SIZE].to_vec())
     } else {
         let mut pubkey = vec![0x04u8];

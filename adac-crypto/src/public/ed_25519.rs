@@ -8,6 +8,10 @@ use pkcs8::DecodePrivateKey;
 use spki::{DecodePublicKey, EncodePublicKey};
 
 pub fn from_adac(adac: &[u8]) -> Result<AdacPublicKey, AdacError> {
+    if adac.len() != adac::ED25519_PUBLIC_KEY_SIZE {
+        return Err(AdacError::InvalidLength);
+    }
+
     let mut raw: [u8; 32] = [0; adac::ED25519_PUBLIC_KEY_SIZE];
     raw.copy_from_slice(&adac[..adac::ED25519_PUBLIC_KEY_SIZE]);
     let pub_key = ed25519::pkcs8::PublicKeyBytes(raw);
