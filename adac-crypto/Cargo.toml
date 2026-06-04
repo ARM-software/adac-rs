@@ -18,7 +18,7 @@ ed25519 = { workspace = true }
 ed448 = { workspace = true }
 ed448-goldilocks-plus = { workspace = true }
 elliptic-curve = { workspace = true }
-hybrid-array = "0.3"
+hybrid-array = "0.4"
 ml-dsa = { workspace = true }
 p256 = { workspace = true }
 p384 = { workspace = true }
