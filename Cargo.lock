@@ -44,7 +44,7 @@ dependencies = [
  "ed448",
  "ed448-goldilocks-plus",
  "elliptic-curve",
- "hybrid-array 0.3.1",
+ "hybrid-array",
  "ml-dsa",
  "p256",
  "p384",
@@ -316,7 +316,7 @@ version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdd35008169921d80bc60d3d0ab416eecb028c4cd653352907921d95084790be"
 dependencies = [
- "hybrid-array 0.4.10",
+ "hybrid-array",
 ]
 
 [[package]]
@@ -489,7 +489,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77727bb15fa921304124b128af125e7e3b968275d1b108b379190264f4423710"
 dependencies = [
- "hybrid-array 0.4.10",
+ "hybrid-array",
 ]
 
 [[package]]
@@ -835,15 +835,6 @@ dependencies = [
 
 [[package]]
 name = "hybrid-array"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "891d15931895091dea5c47afa5b3c9a01ba634b311919fd4d41388fa0e3d76af"
-dependencies = [
- "typenum",
-]
-
-[[package]]
-name = "hybrid-array"
 version = "0.4.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3944cf8cf766b40e2a1a333ee5e9b563f854d5fa49d6a8ca2764e97c6eddb214"
@@ -985,7 +976,7 @@ checksum = "f5b2bb0ad6fa2b40396775bd56f51345171490fef993f46f91a876ecdbdaea55"
 dependencies = [
  "const-oid 0.10.1",
  "ctutils",
- "hybrid-array 0.4.10",
+ "hybrid-array",
  "module-lattice",
  "pkcs8 0.11.0-rc.11",
  "rand_core 0.10.1",
@@ -999,7 +990,7 @@ version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "164eb3faeaecbd14b0b2a917c1b4d0c035097a9c559b0bed85c2cdd032bc8faa"
 dependencies = [
- "hybrid-array 0.4.10",
+ "hybrid-array",
  "num-traits",
 ]
 
