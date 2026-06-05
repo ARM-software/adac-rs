@@ -308,8 +308,7 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 let pk = KeyConverter::<MlDsa44>::fix_pkcs8_der(&current_key.key)?;
                 let sk = ml_dsa::SigningKey::<MlDsa44>::from_pkcs8_der(&pk)
                     .map_err(|e| AdacError::Encoding(format!("Decoding private key: {}", e)))?;
-                sk.signing_key()
-                    .sign_deterministic(data, &[])
+                ml_dsa::signature::Signer::try_sign(&sk, data)
                     .map_err(|e| AdacError::CryptoProviderError(format!("Signing: {}", e)))?
                     .encode()
                     .to_vec()
@@ -318,9 +317,7 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 let pk = KeyConverter::<MlDsa65>::fix_pkcs8_der(&current_key.key)?;
                 let sk = ml_dsa::SigningKey::<MlDsa65>::from_pkcs8_der(&pk)
                     .map_err(|e| AdacError::Encoding(format!("Decoding private key: {}", e)))?;
-                let mut sig = sk
-                    .signing_key()
-                    .sign_deterministic(data, &[])
+                let mut sig = ml_dsa::signature::Signer::try_sign(&sk, data)
                     .map_err(|e| AdacError::CryptoProviderError(format!("Signing: {}", e)))?
                     .encode()
                     .to_vec();
@@ -331,9 +328,7 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 let pk = KeyConverter::<MlDsa87>::fix_pkcs8_der(&current_key.key)?;
                 let sk = ml_dsa::SigningKey::<MlDsa87>::from_pkcs8_der(&pk)
                     .map_err(|e| AdacError::Encoding(format!("Decoding private key: {}", e)))?;
-                let mut sig = sk
-                    .signing_key()
-                    .sign_deterministic(data, &[])
+                let mut sig = ml_dsa::signature::Signer::try_sign(&sk, data)
                     .map_err(|e| AdacError::CryptoProviderError(format!("Signing: {}", e)))?
                     .encode()
                     .to_vec();
