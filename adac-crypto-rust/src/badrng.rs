@@ -3,7 +3,7 @@
 
 use rand::{CryptoRng, RngCore};
 
-pub struct BadRng {}
+pub(crate) struct BadRng {}
 
 impl CryptoRng for BadRng {}
 
