@@ -1,7 +1,6 @@
 // Copyright (c) 2019-2025, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-use adac::KeyOptions::{Rsa3072Sha256, Rsa4096Sha256};
 use adac::{AdacError, KeyOptions};
 use cryptoki::mechanism::Mechanism;
 use cryptoki::object::{Attribute, KeyType, ObjectClass, ObjectHandle};
@@ -11,16 +10,19 @@ use rsa::pkcs8::DecodePrivateKey;
 use rsa::traits::{PrivateKeyParts, PublicKeyParts};
 use sha2::Digest;
 
+fn validate_private_key_size(
+    key_type: KeyOptions,
+    key: &rsa::RsaPrivateKey,
+) -> Result<(), AdacError> {
+    adac::validate_rsa_modulus_bits(key_type, key.n().bits())
+}
+
 pub fn generate_keypair(
     session: &Session,
     key_type: KeyOptions,
 ) -> Result<(ObjectHandle, ObjectHandle), AdacError> {
     let public_exponent: Vec<u8> = vec![0x01, 0x00, 0x01];
-    let modulus_bits = match key_type {
-        KeyOptions::Rsa3072Sha256 => 3072,
-        KeyOptions::Rsa4096Sha256 => 4096,
-        _ => return Err(AdacError::InconsistentCrypto),
-    };
+    let modulus_bits = adac::rsa_modulus_bits(key_type)? as u64;
 
     let public_key_template = vec![
         Attribute::Token(true),
@@ -50,7 +52,7 @@ pub fn generate_keypair(
 
 pub fn import_key(
     session: &Session,
-    _key_type: KeyOptions,
+    key_type: KeyOptions,
     key: Vec<u8>,
 ) -> Result<(String, Vec<u8>, Vec<u8>, ObjectHandle, ObjectHandle), AdacError> {
     let pk =
@@ -62,6 +64,7 @@ pub fn import_key(
 
     let pk = rsa::RsaPrivateKey::from_pkcs8_der(key.as_slice())
         .map_err(|e| AdacError::Encoding(e.to_string()))?;
+    validate_private_key_size(key_type, &pk)?;
     let pubk = pk.to_public_key();
     let spki = pubk
         .to_public_key_der()
@@ -113,9 +116,18 @@ pub fn import_key(
         private_key_template.append(&mut crt_template);
     }
 
-    let private = session
-        .create_object(&private_key_template)
-        .map_err(|e| AdacError::CryptoProviderError(e.to_string()))?;
+    let private = match session.create_object(&private_key_template) {
+        Ok(private) => private,
+        Err(e) => {
+            let e_create = e.to_string();
+            if let Err(e_cleanup) = session.destroy_object(public) {
+                return Err(AdacError::CryptoProviderError(format!(
+                    "Error creating private key object: '{e_create}' and failed to destroy public key object: '{e_cleanup}'",
+                )));
+            }
+            return Err(AdacError::CryptoProviderError(e_create));
+        }
+    };
 
     Ok((kid, key_id.to_vec(), spki, private, public))
 }
@@ -125,9 +137,7 @@ pub fn find_keypair(
     key_type: KeyOptions,
     key_id: &[u8],
 ) -> Result<(ObjectHandle, ObjectHandle), AdacError> {
-    if key_type != Rsa3072Sha256 && key_type != Rsa4096Sha256 {
-        return Err(AdacError::InconsistentCrypto);
-    }
+    adac::rsa_modulus_bits(key_type)?;
 
     let private_key_search = vec![
         Attribute::Token(true),

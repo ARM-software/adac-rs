@@ -1,7 +1,6 @@
 // Copyright (c) 2019-2025, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
-use adac::KeyOptions::{Rsa3072Sha256, Rsa4096Sha256};
 use adac::{AdacError, KeyOptions};
 use cryptoki::mechanism::rsa::{PkcsMgfType, PkcsPssParams};
 use cryptoki::mechanism::{Mechanism, MechanismType};
@@ -12,9 +11,15 @@ use rsa::pkcs8::EncodePublicKey;
 
 pub fn import_public_key(
     session: &Session,
-    _key_type: KeyOptions,
+    key_type: KeyOptions,
     public_key: &[u8],
 ) -> Result<ObjectHandle, AdacError> {
+    if public_key.len() != adac::rsa_modulus_size(key_type)? {
+        return Err(AdacError::InvalidLength);
+    }
+    let modulus = rsa::BigUint::from_bytes_be(public_key);
+    adac::validate_rsa_modulus_bits(key_type, modulus.bits())?;
+
     let exponent = vec![0x01u8, 0x00u8, 0x01u8];
     let pubkey_template = vec![
         Attribute::Token(false),
@@ -62,12 +67,6 @@ pub fn load_public_key(
     key_type: KeyOptions,
     key_handle: ObjectHandle,
 ) -> Result<Vec<u8>, AdacError> {
-    let l = match key_type {
-        Rsa3072Sha256 => 3072,
-        Rsa4096Sha256 => 4096,
-        _ => return Err(AdacError::InconsistentCrypto),
-    };
-
     let modulus = session
         .get_attributes(key_handle, &[AttributeType::Modulus])
         .map_err(|e| AdacError::CryptoProviderError(e.to_string()))?
@@ -96,9 +95,7 @@ pub fn load_public_key(
         rsa::BigUint::from_bytes_be(&[0x01u8, 0x00u8, 0x01u8])
     };
 
-    if modulus.bits() != l {
-        return Err(AdacError::InconsistentCrypto);
-    }
+    adac::validate_rsa_modulus_bits(key_type, modulus.bits())?;
 
     Ok(rsa::RsaPublicKey::new(modulus, exponent)
         .map_err(|e| AdacError::Encoding(format!("Rebuilding RSA public-key {}", e)))?

@@ -20,6 +20,7 @@ use p384::NistP384;
 use p521::NistP521;
 use pkcs8::DecodePrivateKey;
 use rsa::signature::{RandomizedSigner, SignatureEncoding, Verifier};
+use rsa::traits::PublicKeyParts;
 use sha2::{Sha256, Sha384, Sha512};
 use sha3::Shake256;
 use signature::Signer;
@@ -34,6 +35,23 @@ pub struct RustCryptoKey {
 pub struct RustCryptoProvider {
     deterministic: bool,
     current_key: Option<RustCryptoKey>,
+}
+
+fn rsa_public_modulus(key_type: KeyOptions, public_key: &[u8]) -> Result<rsa::BigUint, AdacError> {
+    if public_key.len() != adac::rsa_modulus_size(key_type)? {
+        return Err(AdacError::InvalidLength);
+    }
+
+    let modulus = rsa::BigUint::from_bytes_be(public_key);
+    adac::validate_rsa_modulus_bits(key_type, modulus.bits())?;
+    Ok(modulus)
+}
+
+fn validate_rsa_private_key_size(
+    key_type: KeyOptions,
+    key: &rsa::RsaPrivateKey,
+) -> Result<(), AdacError> {
+    adac::validate_rsa_modulus_bits(key_type, key.n().bits())
 }
 
 impl RustCryptoProvider {
@@ -170,8 +188,7 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 }
             }
             Rsa3072Sha256 | Rsa4096Sha256 => {
-                let n = rsa::BigUint::from_bytes_be(public_key);
-                // TODO: Check key size
+                let n = rsa_public_modulus(key_type, public_key)?;
                 let f4 = rsa::BigUint::from_bytes_be(&[0x01u8, 0x00u8, 0x01u8]);
                 let pk = rsa::RsaPublicKey::new(n, f4).map_err(|e| {
                     AdacError::Encoding(format!("Rebuilding RSA public key: {}", e))
@@ -326,6 +343,7 @@ impl AdacCryptoProvider for RustCryptoProvider {
             Rsa3072Sha256 | Rsa4096Sha256 => {
                 let k = rsa::RsaPrivateKey::from_pkcs8_der(current_key.key.as_slice())
                     .map_err(|e| AdacError::Encoding(format!("Decoding private key: {}", e)))?;
+                validate_rsa_private_key_size(key_type, &k)?;
                 let sk = rsa::pss::SigningKey::<Sha256>::new(k);
                 if self.deterministic {
                     #[cfg(any(test, feature = "hazmat-deterministic"))]
@@ -379,7 +397,12 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 MlDsa44Sha256 => public::ml_dsa::spki_from_pkcs8::<MlDsa44>(&key)?,
                 MlDsa65Sha384 => public::ml_dsa::spki_from_pkcs8::<MlDsa65>(&key)?,
                 MlDsa87Sha512 => public::ml_dsa::spki_from_pkcs8::<MlDsa87>(&key)?,
-                Rsa3072Sha256 | Rsa4096Sha256 => public::rsa::spki_from_pkcs8(&key)?,
+                Rsa3072Sha256 | Rsa4096Sha256 => {
+                    let rsa_key = rsa::RsaPrivateKey::from_pkcs8_der(key.as_slice())
+                        .map_err(|e| AdacError::Encoding(format!("Decoding private key: {}", e)))?;
+                    validate_rsa_private_key_size(key_type, &rsa_key)?;
+                    public::rsa::spki_from_pkcs8(&key)?
+                }
                 SmSm2Sm3 => public::sm::spki_from_pkcs8(&key)?,
                 _ => return Err(AdacError::UnsupportedAlgorithm),
             };

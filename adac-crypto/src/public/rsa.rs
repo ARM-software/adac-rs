@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 use crate::public::AdacPublicKey;
-use adac::KeyOptions::{Rsa3072Sha256, Rsa4096Sha256};
 use adac::{AdacError, KeyOptions};
 use der::Encode;
 use pkcs8::DecodePrivateKey;
@@ -12,18 +11,13 @@ pub use rsa::pkcs1::ALGORITHM_OID;
 use rsa::traits::PublicKeyParts;
 
 pub fn from_adac(key_type: KeyOptions, adac: &[u8]) -> Result<AdacPublicKey, AdacError> {
+    if adac.len() != adac::rsa_modulus_size(key_type)? {
+        return Err(AdacError::InvalidLength);
+    }
     let n = rsa::BigUint::from_bytes_be(adac);
     let f4 = rsa::BigUint::from_bytes_be(&[0x01u8, 0x00u8, 0x01u8]);
 
-    let l = match key_type {
-        Rsa3072Sha256 => 3072,
-        Rsa4096Sha256 => 4096,
-        _ => return Err(AdacError::InconsistentCrypto),
-    };
-
-    if n.bits() != l {
-        return Err(AdacError::InconsistentCrypto);
-    }
+    adac::validate_rsa_modulus_bits(key_type, n.bits())?;
 
     let spki = rsa::RsaPublicKey::new(n, f4)
         .map_err(|e| AdacError::Encoding(format!("Rebuilding RSA public-key {}", e)))?
@@ -46,11 +40,7 @@ pub fn from_spki(spki: &[u8]) -> Result<AdacPublicKey, AdacError> {
     let pk = rsa::RsaPublicKey::from_public_key_der(spki).map_err(|e| {
         AdacError::Encoding(format!("Error decoding RSA public key from SPKI: {}", e))
     })?;
-    let (key_type, l) = match pk.n().bits() {
-        3072 => (Rsa3072Sha256, 384),
-        4096 => (Rsa4096Sha256, 512),
-        _ => return Err(AdacError::InconsistentCrypto),
-    };
+    let (key_type, l) = adac::rsa_key_type_from_modulus_bits(pk.n().bits())?;
     let adac = pk.n().to_bytes_be();
     if adac.len() != l {
         return Err(AdacError::InconsistentCrypto);
