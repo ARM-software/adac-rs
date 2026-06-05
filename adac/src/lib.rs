@@ -641,6 +641,40 @@ pub const RSA_4096_PUBLIC_KEY_SIZE: usize = 512;
 pub const RSA_4096_SIGNATURE_SIZE: usize = 512;
 pub const RSA_4096_HASH_SIZE: usize = 32;
 
+pub fn rsa_modulus_size(key_type: KeyOptions) -> Result<usize, AdacError> {
+    match key_type {
+        KeyOptions::Rsa3072Sha256 => Ok(RSA_3072_PUBLIC_KEY_SIZE),
+        KeyOptions::Rsa4096Sha256 => Ok(RSA_4096_PUBLIC_KEY_SIZE),
+        _ => Err(AdacError::InconsistentCrypto),
+    }
+}
+
+pub fn rsa_modulus_bits(key_type: KeyOptions) -> Result<usize, AdacError> {
+    Ok(rsa_modulus_size(key_type)? * 8)
+}
+
+pub fn validate_rsa_modulus_bits(
+    key_type: KeyOptions,
+    modulus_bits: usize,
+) -> Result<(), AdacError> {
+    let expected_bits = rsa_modulus_bits(key_type)?;
+    if !((expected_bits - 7)..=expected_bits).contains(&modulus_bits) {
+        return Err(AdacError::InconsistentCrypto);
+    }
+    Ok(())
+}
+
+pub fn rsa_key_type_from_modulus_bits(
+    modulus_bits: usize,
+) -> Result<(KeyOptions, usize), AdacError> {
+    for key_type in [KeyOptions::Rsa3072Sha256, KeyOptions::Rsa4096Sha256] {
+        if validate_rsa_modulus_bits(key_type, modulus_bits).is_ok() {
+            return Ok((key_type, rsa_modulus_size(key_type)?));
+        }
+    }
+    Err(AdacError::InconsistentCrypto)
+}
+
 pub const SM2_PUBLIC_KEY_SIZE: usize = 64;
 pub const SM2_SIGNATURE_SIZE: usize = 64;
 pub const SM2_HASH_SIZE: usize = 32;
@@ -721,6 +755,28 @@ mod tests {
         assert!(matches!(
             validate_public_key_padding(KeyOptions::Ed448Shake256, &public_key),
             Err(AdacError::InvalidLength)
+        ));
+    }
+
+    #[test]
+    fn validate_rsa_modulus_bits_accepts_one_byte_tolerance() {
+        assert!(validate_rsa_modulus_bits(KeyOptions::Rsa3072Sha256, 3072).is_ok());
+        assert!(validate_rsa_modulus_bits(KeyOptions::Rsa3072Sha256, 3065).is_ok());
+        assert!(matches!(
+            validate_rsa_modulus_bits(KeyOptions::Rsa3072Sha256, 3064),
+            Err(AdacError::InconsistentCrypto)
+        ));
+    }
+
+    #[test]
+    fn rsa_key_type_from_modulus_bits_uses_profile_tolerance() {
+        assert!(matches!(
+            rsa_key_type_from_modulus_bits(4089),
+            Ok((KeyOptions::Rsa4096Sha256, RSA_4096_PUBLIC_KEY_SIZE))
+        ));
+        assert!(matches!(
+            rsa_key_type_from_modulus_bits(4088),
+            Err(AdacError::InconsistentCrypto)
         ));
     }
 
