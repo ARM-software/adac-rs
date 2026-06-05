@@ -1,6 +1,7 @@
 // Copyright (c) 2019-2026, Arm Limited. All rights reserved.
 // SPDX-License-Identifier: BSD-3-Clause
 
+#[cfg(any(test, feature = "hazmat-deterministic"))]
 mod badrng;
 pub mod ed_448;
 pub mod sm;
@@ -327,8 +328,17 @@ impl AdacCryptoProvider for RustCryptoProvider {
                     .map_err(|e| AdacError::Encoding(format!("Decoding private key: {}", e)))?;
                 let sk = rsa::pss::SigningKey::<Sha256>::new(k);
                 if self.deterministic {
-                    let mut rng = badrng::BadRng {};
-                    sk.sign_with_rng(&mut rng, data).to_vec()
+                    #[cfg(any(test, feature = "hazmat-deterministic"))]
+                    {
+                        let mut rng = badrng::BadRng {};
+                        sk.sign_with_rng(&mut rng, data).to_vec()
+                    }
+                    #[cfg(not(any(test, feature = "hazmat-deterministic")))]
+                    {
+                        return Err(AdacError::CryptoProviderError(
+                            "Deterministic RSA-PSS signing is disabled".to_string(),
+                        ));
+                    }
                 } else {
                     let mut rng = rand::thread_rng();
                     sk.sign_with_rng(&mut rng, data).to_vec()
