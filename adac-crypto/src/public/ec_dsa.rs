@@ -16,7 +16,19 @@ use p384::NistP384;
 use p521::NistP521;
 use pkcs8::DecodePrivateKey;
 use spki::{DecodePublicKey, EncodePublicKey, SubjectPublicKeyInfo};
-use std::ops::Deref;
+
+fn adac_from_uncompressed_sec1(sec1: &[u8]) -> Result<Vec<u8>, AdacError> {
+    let (prefix, adac) = sec1.split_first().ok_or(AdacError::InvalidLength)?;
+    if *prefix != 0x04 {
+        return Err(AdacError::Encoding(
+            "Expected uncompressed SEC1 public key".to_string(),
+        ));
+    }
+    if adac.is_empty() {
+        return Err(AdacError::InvalidLength);
+    }
+    Ok(adac.to_vec())
+}
 
 pub trait CurveAbstraction {
     type C: AssociatedOid + JwkParameters + CurveArithmetic + PointCompression;
@@ -49,7 +61,8 @@ pub trait CurveAbstraction {
     {
         let spki = PublicKey::<Self::C>::from_public_key_der(spki)
             .map_err(|e| AdacError::Encoding(format!("Decoding {} SPKI: {}", Self::C::CRV, e)))?;
-        let adac = spki.to_sec1_bytes()[1..].to_vec();
+        let sec1 = spki.to_sec1_bytes();
+        let adac = adac_from_uncompressed_sec1(sec1.as_ref())?;
         let spki = spki
             .to_public_key_der()
             .map_err(|e| AdacError::Encoding(format!("Re-encoding {} SPKI: {}", Self::C::CRV, e)))?
@@ -77,13 +90,13 @@ pub fn from_adac(key_type: KeyOptions, adac: &[u8]) -> Result<AdacPublicKey, Ada
 }
 
 pub fn from_sec1(key_type: KeyOptions, sec1: &[u8]) -> Result<AdacPublicKey, AdacError> {
-    let adac = sec1[1..].to_vec();
     let (spki, curve) = match key_type {
         EcdsaP256Sha256 => NistP256::from_sec1_bytes(sec1)?,
         EcdsaP384Sha384 => NistP384::from_sec1_bytes(sec1)?,
         EcdsaP521Sha512 => NistP521::from_sec1_bytes(sec1)?,
         _ => return Err(AdacError::InconsistentCrypto),
     };
+    let adac = adac_from_uncompressed_sec1(sec1)?;
 
     Ok(AdacPublicKey {
         key_type,
@@ -129,10 +142,8 @@ where
 {
     let k = PublicKey::<C>::from_public_key_der(public_key.as_slice())
         .map_err(|e| AdacError::Encoding(format!("Error decoding ECDSA key from SPKI: {}", e)))?
-        .to_sec1_bytes()
-        .deref()[1..]
-        .to_vec();
-    Ok(k)
+        .to_sec1_bytes();
+    adac_from_uncompressed_sec1(k.as_ref())
 }
 
 pub fn spki_from_pkcs8<C>(key: &Vec<u8>) -> Result<Vec<u8>, AdacError>
@@ -159,8 +170,6 @@ where
     let k = SecretKey::<C>::from_pkcs8_der(key.as_slice())
         .map_err(|e| AdacError::Encoding(format!("Error decoding ECDSA key from PKCS#8: {}", e)))?
         .public_key()
-        .to_sec1_bytes()
-        .deref()[1..]
-        .to_vec();
-    Ok(k)
+        .to_sec1_bytes();
+    adac_from_uncompressed_sec1(k.as_ref())
 }
