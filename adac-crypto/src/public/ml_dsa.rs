@@ -43,12 +43,15 @@ where
         } else {
             let mut reader = SliceReader::new(private_key)?;
             let seed_string = SeedString::decode_implicit(&mut reader, SEED_TAG_NUMBER)?
-                .ok_or(pkcs8::Error::KeyMalformed)?;
+                .ok_or(pkcs8::KeyError::Invalid)?;
             reader.finish()?;
             seed_string.value.as_bytes()
         };
 
-        let seed = Array::try_from(seed_bytes).map_err(|_| pkcs8::Error::KeyMalformed)?;
+        let seed = Array::try_from(seed_bytes).map_err(|_| match seed_bytes.len() {
+            len if len < 32 => pkcs8::KeyError::TooShort,
+            _ => pkcs8::KeyError::TooLong,
+        })?;
         Ok(KeyConverter {
             seed,
             phantom: PhantomData::<P>,

@@ -326,11 +326,13 @@ mod tests {
 
     #[test]
     fn ml_dsa_44_root_sig() {
-        rust_crypto_root_sig_test(
-            MlDsa44Sha256,
-            "resources/keys/MlDsa44Key-0.pk8",
-            "resources/roots/root.MlDsa44",
-        )
+        run_test_with(&TestSettings::default(), || {
+            rust_crypto_root_sig_test(
+                MlDsa44Sha256,
+                "resources/keys/MlDsa44Key-0.pk8",
+                "resources/roots/root.MlDsa44",
+            )
+        })
     }
 
     #[test]
