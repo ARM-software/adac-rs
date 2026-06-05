@@ -14,6 +14,7 @@ use p256::NistP256;
 use p384::NistP384;
 use p521::NistP521;
 use pkcs8::{PrivateKeyInfo, SecretDocument};
+use rsa::{pkcs8::DecodePrivateKey, traits::PublicKeyParts};
 use sec1::DecodeEcPrivateKey;
 use std::{fs, path::Path};
 
@@ -93,11 +94,12 @@ pub fn pkcs8_parse_key(k: Vec<u8>) -> Result<(KeyOptions, Vec<u8>), AdacError> {
         crate::ML_DSA_87_OID => MlDsa87Sha512,
         ed25519::pkcs8::ALGORITHM_OID => Ed25519Sha512,
         crate::ED_448_OID => Ed448Shake256,
-        rsa::pkcs1::ALGORITHM_OID => match pk.private_key.len() {
-            1768..=1769 => Rsa3072Sha256,
-            2348..=2349 => Rsa4096Sha256,
-            _ => return Err(AdacError::InvalidLength),
-        },
+        rsa::pkcs1::ALGORITHM_OID => {
+            let key = rsa::RsaPrivateKey::from_pkcs8_der(k.as_slice()).map_err(|e| {
+                AdacError::Encoding(format!("Error decoding RSA key from PKCS#8: {}", e))
+            })?;
+            adac::rsa_key_type_from_modulus_bits(key.n().bits())?.0
+        }
         _ => return Err(AdacError::UnsupportedAlgorithm),
     };
 
