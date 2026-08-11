@@ -49,21 +49,11 @@ pub fn verify(
         }
         Ed25519Sha512 => {
             let params = EddsaParams::new(EddsaSignatureScheme::Ed25519ph(&[]));
-            session.verify(
-                &Mechanism::Eddsa(params),
-                handle,
-                hash.as_slice(),
-                signature,
-            )
+            session.verify(&Mechanism::Eddsa(params), handle, data, signature)
         }
         Ed448Shake256 => {
             let params = EddsaParams::new(EddsaSignatureScheme::Ed448ph(&[]));
-            session.verify(
-                &Mechanism::Eddsa(params),
-                handle,
-                hash.as_slice(),
-                signature,
-            )
+            session.verify(&Mechanism::Eddsa(params), handle, data, signature)
         }
         _ => return Err(AdacError::UnsupportedAlgorithm),
     }

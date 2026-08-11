@@ -162,17 +162,15 @@ pub fn sign(
             )
             .map_err(|e| AdacError::CryptoProviderError(e.to_string()))?,
         Ed25519Sha512 => {
-            let hash = crate::hash(session, key_type, data)?;
             let params = EddsaParams::new(EddsaSignatureScheme::Ed25519ph(&[]));
             session
-                .sign(&Mechanism::Eddsa(params), handle, hash.as_slice())
+                .sign(&Mechanism::Eddsa(params), handle, data)
                 .map_err(|e| AdacError::CryptoProviderError(e.to_string()))?
         }
         Ed448Shake256 => {
-            let hash = crate::hash(session, key_type, data)?;
             let params = EddsaParams::new(EddsaSignatureScheme::Ed448ph(&[]));
             let mut sig = session
-                .sign(&Mechanism::Eddsa(params), handle, hash.as_slice())
+                .sign(&Mechanism::Eddsa(params), handle, data)
                 .map_err(|e| AdacError::CryptoProviderError(e.to_string()))?;
             sig.append(&mut vec![0u8; 2]);
             sig
