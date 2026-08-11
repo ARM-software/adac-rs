@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
-if [ -z "$ADAC_CLI" ] ; then \
+if [ -z "${ADAC_CLI:-}" ] ; then \
   echo "Set ADAC_CLI variable with path to 'adac-cli' binary" ; \
   exit 1 ; \
 fi
@@ -10,7 +10,7 @@ fi
 TEST_DIR=$(dirname "$0")
 KEYS_DIR=$(realpath "$TEST_DIR")/resources/keys
 CFG_FILE=$(realpath "$TEST_DIR")/test-config.toml
-TEST_DIR=$(realpath "$TEST_DIR")/offline
+TEST_DIR=${ADAC_TEST_OUTPUT_DIR:-"$(realpath "$TEST_DIR")/offline"}
 
 rm -rf "$TEST_DIR"
 mkdir -p "$TEST_DIR"
