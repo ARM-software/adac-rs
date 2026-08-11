@@ -115,7 +115,7 @@ matrix.
 
 - (1): Only verification works. There is an issue with the 
   [p521](https://crates.io/crates/p521) crate for signature.
-- (2): Implementation untested, `SoftHSM2` does not support `phFlag=1` option for EdDSA signature or verification.
+- (2): Implementation requires a PKCS#11 provider that correctly supports `phFlag=1` for Ed25519ph/Ed448ph. `SoftHSM2` does not support this option, so these algorithms are not covered by the PKCS#11 tests or CI.
 - (3): Tested with [Kryoptic](https://github.com/latchset/kryoptic). Provider support requires PKCS#11 v3 ML-DSA mechanisms. These ML-DSA PKCS#11 tests are not covered by the default PKCS#11 test harness or CI; run [adac-tests/pkcs11-test-krypoptic.sh](adac-tests/pkcs11-test-krypoptic.sh) against a local Kryoptic installation.
 
 Legend: :white_check_mark: implemented and tested, :construction: planned or
