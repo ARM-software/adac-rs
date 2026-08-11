@@ -71,6 +71,57 @@ fn certificate_offline_prepare_and_merge_round_trip() {
 }
 
 #[test]
+fn certificate_offline_prepare_and_merge_round_trip_with_ml_dsa() {
+    common::run_with_large_stack(|| {
+        for (parameter_set, signature_size) in [
+            ("44", adac::MLDSA_44_SIGNATURE_SIZE),
+            ("65", adac::MLDSA_65_SIGNATURE_UNPADDED),
+            ("87", adac::MLDSA_87_SIGNATURE_UNPADDED),
+        ] {
+            let dir = common::make_temp_dir("adac-cli-certificate-offline-ml-dsa-tests");
+            let config_path = common::write_verify_config(&dir);
+            let issuer_key = format!("MlDsa{parameter_set}Key-0.pk8");
+            let public_key = common::write_public_key_from_private(&dir, &issuer_key, "root.pub");
+            let prepared_path = dir.join("prepared.pem");
+            let merged_path = dir.join("merged.pem");
+            let tbs_path = dir.join("prepared.tbs");
+            let signature_path = dir.join("signature.bin");
+
+            certificate_prepare_command(
+                &config_path,
+                &public_key,
+                &Some("root".to_string()),
+                &Some(prepared_path.clone()),
+                &Some(tbs_path.clone()),
+                &None,
+            )
+            .unwrap();
+
+            let signature = common::sign_with_private_key_unpadded(
+                &issuer_key,
+                fs::read(&tbs_path).unwrap().as_slice(),
+            );
+            assert_eq!(signature.len(), signature_size);
+            fs::write(&signature_path, signature).unwrap();
+
+            certificate_merge_command(
+                &None,
+                &Some(merged_path.clone()),
+                &prepared_path,
+                &signature_path,
+            )
+            .unwrap();
+
+            let chain = load_certificates(&merged_path).unwrap();
+            assert_eq!(chain.len(), 1);
+            verify_chain(chain, &RustCryptoProvider::default()).unwrap();
+
+            let _ = fs::remove_dir_all(dir);
+        }
+    });
+}
+
+#[test]
 fn certificate_offline_merge_rejects_invalid_signature() {
     let dir = common::make_temp_dir("adac-cli-certificate-offline-tests");
     let config_path = common::write_verify_config(&dir);
