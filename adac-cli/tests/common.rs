@@ -36,6 +36,18 @@ pub fn make_temp_dir(prefix: &str) -> PathBuf {
     path
 }
 
+pub fn run_with_large_stack<F>(test: F)
+where
+    F: FnOnce() + Send + 'static,
+{
+    std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(test)
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
 pub fn fixture_path(kind: &str, name: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../adac-tests/resources")
@@ -72,6 +84,18 @@ pub fn sign_with_private_key(key_name: &str, data: &[u8]) -> Vec<u8> {
         .load_key(key_type, AdacKeyFormat::Pkcs8, private_key.as_slice())
         .unwrap();
     crypto.sign(key_type, data).unwrap()
+}
+
+pub fn sign_with_private_key_unpadded(key_name: &str, data: &[u8]) -> Vec<u8> {
+    let (key_type, private_key) = load_key(fixture_path("keys", key_name)).unwrap();
+    let mut crypto = RustCryptoProvider::default();
+    crypto
+        .load_key(key_type, AdacKeyFormat::Pkcs8, private_key.as_slice())
+        .unwrap();
+    let signature = crypto.sign(key_type, data).unwrap();
+    adac::validate_signature_padding(key_type, signature.as_slice())
+        .unwrap()
+        .to_vec()
 }
 
 fn der_integer(bytes: &[u8]) -> Vec<u8> {

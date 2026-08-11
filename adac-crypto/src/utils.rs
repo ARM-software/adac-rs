@@ -9,7 +9,7 @@ use adac::{AdacError, KeyOptions, KeyOptions::*};
 use adac::{certificate::AdacCertificate, traits::AdacCryptoProvider};
 use base64::prelude::*;
 use der::oid::AssociatedOid;
-use ml_dsa::{MlDsa44, MlDsa65, MlDsa87};
+use ml_dsa::{MlDsa44, MlDsa65, MlDsa87, MlDsaParams};
 use p256::NistP256;
 use p384::NistP384;
 use p521::NistP521;
@@ -182,24 +182,75 @@ pub fn verify_chain(
     Ok(())
 }
 
-pub fn convert_signature(key_type: KeyOptions, der_sig: &[u8]) -> Result<Vec<u8>, AdacError> {
+pub fn convert_signature(key_type: KeyOptions, signature: &[u8]) -> Result<Vec<u8>, AdacError> {
     Ok(match key_type {
         EcdsaP256Sha256 => {
-            let sig = p256::ecdsa::Signature::from_der(der_sig)
+            let sig = p256::ecdsa::Signature::from_der(signature)
                 .map_err(|e| AdacError::Encoding(format!("Error decoding signature: {}", e)))?;
 
             sig.to_bytes().to_vec()
         }
         EcdsaP384Sha384 => {
-            let sig = p384::ecdsa::Signature::from_der(der_sig)
+            let sig = p384::ecdsa::Signature::from_der(signature)
                 .map_err(|e| AdacError::Encoding(format!("Error decoding signature: {}", e)))?;
             sig.to_bytes().to_vec()
         }
         EcdsaP521Sha512 => {
-            let sig = p521::ecdsa::Signature::from_der(der_sig)
+            let sig = p521::ecdsa::Signature::from_der(signature)
                 .map_err(|e| AdacError::Encoding(format!("Error decoding signature: {}", e)))?;
             sig.to_bytes().to_vec()
         }
+        MlDsa44Sha256 => normalize_ml_dsa_signature::<MlDsa44>(
+            key_type,
+            signature,
+            adac::MLDSA_44_SIGNATURE_SIZE,
+        )?,
+        MlDsa65Sha384 => normalize_ml_dsa_signature::<MlDsa65>(
+            key_type,
+            signature,
+            adac::MLDSA_65_SIGNATURE_SIZE,
+        )?,
+        MlDsa87Sha512 => normalize_ml_dsa_signature::<MlDsa87>(
+            key_type,
+            signature,
+            adac::MLDSA_87_SIGNATURE_SIZE,
+        )?,
         _ => return Err(AdacError::UnsupportedAlgorithm),
     })
+}
+
+fn normalize_ml_dsa_signature<P: MlDsaParams>(
+    key_type: KeyOptions,
+    signature: &[u8],
+    padded_size: usize,
+) -> Result<Vec<u8>, AdacError> {
+    let signature = if signature.len() == padded_size {
+        adac::validate_signature_padding(key_type, signature)?
+    } else {
+        signature
+    };
+
+    let signature = ml_dsa::Signature::<P>::try_from(signature)
+        .map_err(|e| AdacError::Encoding(format!("Error decoding ML-DSA signature: {}", e)))?;
+
+    let mut normalized = Vec::with_capacity(padded_size);
+    normalized.extend_from_slice(&signature.encode());
+    normalized.resize(padded_size, 0);
+    Ok(normalized)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn convert_signature_rejects_malformed_ml_dsa_signature() {
+        let signature = vec![0xff; adac::MLDSA_87_SIGNATURE_UNPADDED];
+
+        assert!(matches!(
+            convert_signature(MlDsa87Sha512, &signature),
+            Err(AdacError::Encoding(message))
+                if message.starts_with("Error decoding ML-DSA signature:")
+        ));
+    }
 }

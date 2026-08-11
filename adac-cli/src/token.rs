@@ -486,6 +486,11 @@ fn normalize_detached_signature(
             source: anyhow::anyhow!("Error determining signature size: {:?}", e),
         })?;
     if signature.len() == sig_size {
+        adac::validate_signature_padding(key_type, signature).map_err(|e| {
+            CommandError::AdacError {
+                source: anyhow::anyhow!("Error parsing signature: {:?}", e),
+            }
+        })?;
         return Ok(signature.to_vec());
     }
 

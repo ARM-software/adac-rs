@@ -98,6 +98,67 @@ fn token_offline_prepare_and_merge_round_trip() {
 }
 
 #[test]
+fn token_offline_prepare_and_merge_round_trip_with_ml_dsa() {
+    common::run_with_large_stack(|| {
+        for (parameter_set, signature_size) in [
+            ("44", adac::MLDSA_44_SIGNATURE_SIZE),
+            ("65", adac::MLDSA_65_SIGNATURE_UNPADDED),
+            ("87", adac::MLDSA_87_SIGNATURE_UNPADDED),
+        ] {
+            let dir = common::make_temp_dir("adac-cli-token-offline-ml-dsa-tests");
+            let config_path = common::write_token_config(&dir);
+            let prepared_path = dir.join("prepared.bin");
+            let merged_path = dir.join("merged.bin");
+            let tbs_path = dir.join("prepared.tbs");
+            let signature_path = dir.join("signature.bin");
+            let key_type = format!(
+                "MlDsa{parameter_set}Sha{}",
+                match parameter_set {
+                    "44" => "256",
+                    "65" => "384",
+                    "87" => "512",
+                    _ => unreachable!(),
+                }
+            );
+            let private_key = format!("MlDsa{parameter_set}Key-0.pk8");
+
+            token_prepare_command(
+                &Some(config_path),
+                &key_type,
+                common::TOKEN_CHALLENGE,
+                &None,
+                &Some("token".to_string()),
+                &Some(prepared_path.clone()),
+                &Some(tbs_path.clone()),
+                &None,
+            )
+            .unwrap();
+
+            let signature = common::sign_with_private_key_unpadded(
+                &private_key,
+                fs::read(&tbs_path).unwrap().as_slice(),
+            );
+            assert_eq!(signature.len(), signature_size);
+            fs::write(&signature_path, signature).unwrap();
+
+            let chain = common::fixture_path("roots", &format!("root.MlDsa{parameter_set}"));
+            token_merge_command(
+                &prepared_path,
+                &signature_path,
+                &Some(merged_path.clone()),
+                &Some(common::TOKEN_CHALLENGE.to_string()),
+                &Some(chain),
+            )
+            .unwrap();
+
+            load_token(&merged_path).unwrap();
+
+            let _ = fs::remove_dir_all(dir);
+        }
+    });
+}
+
+#[test]
 fn token_offline_merge_rejects_invalid_signature() {
     let dir = common::make_temp_dir("adac-cli-token-offline-tests");
     let config_path = common::write_token_config(&dir);

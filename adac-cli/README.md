@@ -296,7 +296,7 @@ Usage: adac-cli certificate-offline-merge [OPTIONS] <INPUT> <SIGNATURE>
 
 Positional arguments:
 - `<INPUT>`: Unsigned certificate produced by `certificate-offline-prepare`.
-- `<SIGNATURE>`: The DER-encoded signature over the TBS payload, created offline.
+- `<SIGNATURE>`: The signature over the TBS payload, created offline. ECDSA signatures use DER encoding. ML-DSA signatures use the standard raw encoding; `adac-cli` adds the fixed-field padding required by ADAC for ML-DSA-65 and ML-DSA-87.
 
 Example:
 ```
@@ -423,7 +423,7 @@ Usage: adac-cli token-offline-merge [OPTIONS] <INPUT> <SIGNATURE>
 
 Positional arguments:
 - `<INPUT>`: Unsigned token produced by `token-offline-prepare`.
-- `<SIGNATURE>`: Detached signature to merge into the token.
+- `<SIGNATURE>`: Detached signature to merge into the token. ECDSA signatures use DER encoding. ML-DSA signatures use the standard raw encoding; `adac-cli` adds the fixed-field padding required by ADAC for ML-DSA-65 and ML-DSA-87.
 
 When `--output` is omitted, the merged token is printed to stdout as base64. When `--output` is provided, the file contains the raw token bytes.
 
