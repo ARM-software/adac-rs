@@ -20,7 +20,7 @@ pub fn import_public_key(
     let modulus = rsa::BigUint::from_bytes_be(public_key);
     adac::validate_rsa_modulus_bits(key_type, modulus.bits())?;
 
-    let exponent = vec![0x01u8, 0x00u8, 0x01u8];
+    let exponent = adac::RSA_PUBLIC_EXPONENT.to_vec();
     let pubkey_template = vec![
         Attribute::Token(false),
         Attribute::Private(false),
@@ -90,9 +90,12 @@ pub fn load_public_key(
             "Missing RSA Exponent".to_string(),
         ))?;
     let exponent = if let Attribute::PublicExponent(exponent) = exponent {
+        adac::validate_rsa_public_exponent(exponent.as_slice())?;
         rsa::BigUint::from_bytes_be(exponent.as_slice())
     } else {
-        rsa::BigUint::from_bytes_be(&[0x01u8, 0x00u8, 0x01u8])
+        return Err(AdacError::CryptoProviderError(
+            "Invalid RSA Exponent".to_string(),
+        ));
     };
 
     adac::validate_rsa_modulus_bits(key_type, modulus.bits())?;

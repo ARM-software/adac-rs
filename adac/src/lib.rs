@@ -640,6 +640,7 @@ pub const RSA_3072_HASH_SIZE: usize = 32;
 pub const RSA_4096_PUBLIC_KEY_SIZE: usize = 512;
 pub const RSA_4096_SIGNATURE_SIZE: usize = 512;
 pub const RSA_4096_HASH_SIZE: usize = 32;
+pub const RSA_PUBLIC_EXPONENT: [u8; 3] = [0x01, 0x00, 0x01];
 
 pub fn rsa_modulus_size(key_type: KeyOptions) -> Result<usize, AdacError> {
     match key_type {
@@ -659,6 +660,17 @@ pub fn validate_rsa_modulus_bits(
 ) -> Result<(), AdacError> {
     let expected_bits = rsa_modulus_bits(key_type)?;
     if !((expected_bits - 7)..=expected_bits).contains(&modulus_bits) {
+        return Err(AdacError::InconsistentCrypto);
+    }
+    Ok(())
+}
+
+pub fn validate_rsa_public_exponent(exponent: &[u8]) -> Result<(), AdacError> {
+    let exponent = exponent
+        .iter()
+        .position(|byte| *byte != 0)
+        .map_or(&[][..], |first_nonzero| &exponent[first_nonzero..]);
+    if exponent != RSA_PUBLIC_EXPONENT {
         return Err(AdacError::InconsistentCrypto);
     }
     Ok(())
@@ -776,6 +788,20 @@ mod tests {
         ));
         assert!(matches!(
             rsa_key_type_from_modulus_bits(4088),
+            Err(AdacError::InconsistentCrypto)
+        ));
+    }
+
+    #[test]
+    fn validate_rsa_public_exponent_requires_f4() {
+        assert!(validate_rsa_public_exponent(&RSA_PUBLIC_EXPONENT).is_ok());
+        assert!(validate_rsa_public_exponent(&[0, 0, 1, 0, 1]).is_ok());
+        assert!(matches!(
+            validate_rsa_public_exponent(&[3]),
+            Err(AdacError::InconsistentCrypto)
+        ));
+        assert!(matches!(
+            validate_rsa_public_exponent(&[]),
             Err(AdacError::InconsistentCrypto)
         ));
     }

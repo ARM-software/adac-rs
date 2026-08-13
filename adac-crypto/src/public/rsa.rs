@@ -40,6 +40,7 @@ pub fn from_spki(spki: &[u8]) -> Result<AdacPublicKey, AdacError> {
     let pk = rsa::RsaPublicKey::from_public_key_der(spki).map_err(|e| {
         AdacError::Encoding(format!("Error decoding RSA public key from SPKI: {}", e))
     })?;
+    adac::validate_rsa_public_exponent(&pk.e().to_bytes_be())?;
     let (key_type, l) = adac::rsa_key_type_from_modulus_bits(pk.n().bits())?;
     let adac = pk.n().to_bytes_be();
     if adac.len() != l {
@@ -58,6 +59,8 @@ pub fn from_spki(spki: &[u8]) -> Result<AdacPublicKey, AdacError> {
 pub fn spki_from_pkcs8(key: &Vec<u8>) -> Result<Vec<u8>, AdacError> {
     let k = rsa::RsaPrivateKey::from_pkcs8_der(key.as_slice())
         .map_err(|e| AdacError::Encoding(format!("Error decoding RSA key from PKCS#8: {}", e)))?;
+    adac::validate_rsa_public_exponent(&k.e().to_bytes_be())?;
+    adac::rsa_key_type_from_modulus_bits(k.n().bits())?;
     let pk = k
         .to_public_key()
         .to_public_key_der()
@@ -69,14 +72,16 @@ pub fn spki_from_pkcs8(key: &Vec<u8>) -> Result<Vec<u8>, AdacError> {
 pub fn adac_from_pkcs8(key: &Vec<u8>) -> Result<Vec<u8>, AdacError> {
     let k = rsa::RsaPrivateKey::from_pkcs8_der(key.as_slice())
         .map_err(|e| AdacError::Encoding(format!("Error decoding RSA key from PKCS#8: {}", e)))?;
+    adac::validate_rsa_public_exponent(&k.e().to_bytes_be())?;
+    adac::rsa_key_type_from_modulus_bits(k.n().bits())?;
     let pk = k.to_public_key().n().to_bytes_be();
     Ok(pk)
 }
 
 pub fn get_adac_from_spki(public_key: &Vec<u8>) -> Result<Vec<u8>, AdacError> {
-    let k = rsa::RsaPublicKey::from_public_key_der(public_key.as_slice())
-        .map_err(|e| AdacError::Encoding(format!("Error decoding RSA key from SPKI: {}", e)))?
-        .n()
-        .to_bytes_be();
-    Ok(k)
+    let key = rsa::RsaPublicKey::from_public_key_der(public_key.as_slice())
+        .map_err(|e| AdacError::Encoding(format!("Error decoding RSA key from SPKI: {}", e)))?;
+    adac::validate_rsa_public_exponent(&key.e().to_bytes_be())?;
+    adac::rsa_key_type_from_modulus_bits(key.n().bits())?;
+    Ok(key.n().to_bytes_be())
 }

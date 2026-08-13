@@ -98,6 +98,7 @@ pub fn pkcs8_parse_key(k: Vec<u8>) -> Result<(KeyOptions, Vec<u8>), AdacError> {
             let key = rsa::RsaPrivateKey::from_pkcs8_der(k.as_slice()).map_err(|e| {
                 AdacError::Encoding(format!("Error decoding RSA key from PKCS#8: {}", e))
             })?;
+            adac::validate_rsa_public_exponent(&key.e().to_bytes_be())?;
             adac::rsa_key_type_from_modulus_bits(key.n().bits())?.0
         }
         _ => return Err(AdacError::UnsupportedAlgorithm),
