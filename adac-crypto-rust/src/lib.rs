@@ -51,7 +51,8 @@ fn validate_rsa_private_key_size(
     key_type: KeyOptions,
     key: &rsa::RsaPrivateKey,
 ) -> Result<(), AdacError> {
-    adac::validate_rsa_modulus_bits(key_type, key.n().bits())
+    adac::validate_rsa_modulus_bits(key_type, key.n().bits())?;
+    adac::validate_rsa_public_exponent(&key.e().to_bytes_be())
 }
 
 impl RustCryptoProvider {

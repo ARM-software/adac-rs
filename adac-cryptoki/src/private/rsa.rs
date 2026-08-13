@@ -14,14 +14,15 @@ fn validate_private_key_size(
     key_type: KeyOptions,
     key: &rsa::RsaPrivateKey,
 ) -> Result<(), AdacError> {
-    adac::validate_rsa_modulus_bits(key_type, key.n().bits())
+    adac::validate_rsa_modulus_bits(key_type, key.n().bits())?;
+    adac::validate_rsa_public_exponent(&key.e().to_bytes_be())
 }
 
 pub fn generate_keypair(
     session: &Session,
     key_type: KeyOptions,
 ) -> Result<(ObjectHandle, ObjectHandle), AdacError> {
-    let public_exponent: Vec<u8> = vec![0x01, 0x00, 0x01];
+    let public_exponent = adac::RSA_PUBLIC_EXPONENT.to_vec();
     let modulus_bits = cryptoki::types::Ulong::try_from(adac::rsa_modulus_bits(key_type)?)
         .map_err(|_e| AdacError::InconsistentCrypto)?;
 
