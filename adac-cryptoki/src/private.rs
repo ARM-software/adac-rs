@@ -31,7 +31,10 @@ pub fn generate_keypair(
         _ => return Err(AdacError::UnsupportedAlgorithm),
     };
 
-    set_kid(session, key_type, public, private)
+    match set_kid(session, key_type, public, private) {
+        Ok(keypair) => Ok(keypair),
+        Err(error) => Err(destroy_keypair_after_error(session, private, public, error)),
+    }
 }
 
 pub fn import_key(
@@ -84,6 +87,49 @@ pub(crate) fn unique_key_object(
             "Multiple PKCS#11 {object_name} objects with ID '{}' were found",
             base16ct::lower::encode_string(key_id)
         ))),
+    }
+}
+
+pub(crate) fn create_private_object(
+    session: &Session,
+    public: ObjectHandle,
+    private_key_template: &[Attribute],
+) -> Result<ObjectHandle, AdacError> {
+    match session.create_object(private_key_template) {
+        Ok(private) => Ok(private),
+        Err(error) => {
+            let primary = error.to_string();
+            if let Err(cleanup) = session.destroy_object(public) {
+                return Err(AdacError::CryptoProviderError(format!(
+                    "Error creating private key object: '{primary}'; failed to destroy public key object: '{cleanup}'"
+                )));
+            }
+            Err(AdacError::CryptoProviderError(primary))
+        }
+    }
+}
+
+fn destroy_keypair_after_error(
+    session: &Session,
+    private: ObjectHandle,
+    public: ObjectHandle,
+    error: AdacError,
+) -> AdacError {
+    let mut cleanup_errors = Vec::new();
+    if let Err(cleanup) = session.destroy_object(private) {
+        cleanup_errors.push(format!("private key: {cleanup}"));
+    }
+    if let Err(cleanup) = session.destroy_object(public) {
+        cleanup_errors.push(format!("public key: {cleanup}"));
+    }
+
+    if cleanup_errors.is_empty() {
+        error
+    } else {
+        AdacError::CryptoProviderError(format!(
+            "Key pair finalization failed: {error:?}; cleanup also failed for {}",
+            cleanup_errors.join(", ")
+        ))
     }
 }
 

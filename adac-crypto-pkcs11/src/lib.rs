@@ -51,7 +51,19 @@ impl AdacCryptoProvider for Pkcs11Provider {
         signature: &[u8],
     ) -> Result<(), AdacError> {
         let handle = public::import_public_key(&self.session, key_type, public_key)?;
-        public::verify(&self.session, key_type, handle, data, signature)
+        let verification = public::verify(&self.session, key_type, handle, data, signature);
+        let cleanup = self
+            .session
+            .destroy_object(handle)
+            .map_err(|e| AdacError::CryptoProviderError(e.to_string()));
+
+        match (verification, cleanup) {
+            (result, Ok(())) => result,
+            (Ok(()), Err(cleanup)) => Err(cleanup),
+            (Err(verification), Err(cleanup)) => Err(AdacError::CryptoProviderError(format!(
+                "PKCS#11 verification failed: {verification:?}; temporary public-key cleanup also failed: {cleanup:?}"
+            ))),
+        }
     }
 
     fn hash(&self, key_type: KeyOptions, data: &[u8]) -> Result<Vec<u8>, AdacError> {

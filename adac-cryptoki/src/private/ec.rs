@@ -193,9 +193,7 @@ pub fn import_key(
         Attribute::Id(key_id.to_vec()),
     ];
 
-    let private = session
-        .create_object(&private_key_template)
-        .map_err(|e| AdacError::CryptoProviderError(e.to_string()))?;
+    let private = super::create_private_object(session, public, &private_key_template)?;
 
     Ok((kid, key_id.to_vec(), spki, private, public))
 }
