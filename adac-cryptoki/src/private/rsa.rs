@@ -118,18 +118,7 @@ pub fn import_key(
         private_key_template.append(&mut crt_template);
     }
 
-    let private = match session.create_object(&private_key_template) {
-        Ok(private) => private,
-        Err(e) => {
-            let e_create = e.to_string();
-            if let Err(e_cleanup) = session.destroy_object(public) {
-                return Err(AdacError::CryptoProviderError(format!(
-                    "Error creating private key object: '{e_create}' and failed to destroy public key object: '{e_cleanup}'",
-                )));
-            }
-            return Err(AdacError::CryptoProviderError(e_create));
-        }
-    };
+    let private = super::create_private_object(session, public, &private_key_template)?;
 
     Ok((kid, key_id.to_vec(), spki, private, public))
 }
