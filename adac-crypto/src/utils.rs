@@ -17,6 +17,9 @@ use pkcs8::{PrivateKeyInfo, SecretDocument};
 use rsa::{pkcs8::DecodePrivateKey, traits::PublicKeyParts};
 use sec1::DecodeEcPrivateKey;
 use std::{fs, path::Path};
+use zeroize::Zeroizing;
+
+pub type PrivateKeyBytes = Zeroizing<Vec<u8>>;
 
 pub fn load_certificates<P: AsRef<Path>>(path: P) -> Result<Vec<AdacCertificate>, AdacError> {
     let contents = fs::read_to_string(path).map_err(|e| AdacError::InputOutput(e.to_string()))?;
@@ -71,7 +74,11 @@ pub fn save_certificates(certificates: &Vec<AdacCertificate>) -> Result<String, 
     ))
 }
 
-pub fn pkcs8_parse_key(k: Vec<u8>) -> Result<(KeyOptions, Vec<u8>), AdacError> {
+pub fn pkcs8_parse_key<K>(k: K) -> Result<(KeyOptions, PrivateKeyBytes), AdacError>
+where
+    K: Into<PrivateKeyBytes>,
+{
+    let k = k.into();
     let pk =
         PrivateKeyInfo::try_from(k.as_slice()).map_err(|e| AdacError::Encoding(e.to_string()))?;
 
@@ -107,22 +114,28 @@ pub fn pkcs8_parse_key(k: Vec<u8>) -> Result<(KeyOptions, Vec<u8>), AdacError> {
     Ok((key_type, k))
 }
 
-pub fn load_key<P: AsRef<Path>>(path: P) -> Result<(KeyOptions, Vec<u8>), AdacError> {
+pub fn load_key<P: AsRef<Path>>(path: P) -> Result<(KeyOptions, PrivateKeyBytes), AdacError> {
     let contents = fs::read_to_string(path).map_err(|e| AdacError::InputOutput(e.to_string()))?;
     read_key(contents)
 }
 
-pub fn read_key(content: String) -> Result<(KeyOptions, Vec<u8>), AdacError> {
-    let pem = pem::parse(content).map_err(|e| AdacError::Encoding(e.to_string()))?;
-    match (pem.tag(), pem.contents().to_vec()) {
-        ("EC PRIVATE KEY", der) => {
+pub fn read_key<S>(content: S) -> Result<(KeyOptions, PrivateKeyBytes), AdacError>
+where
+    S: Into<Zeroizing<String>>,
+{
+    let content = content.into();
+    let pem = pem::parse(content.as_bytes()).map_err(|e| AdacError::Encoding(e.to_string()))?;
+    let tag = pem.tag().to_string();
+    let der = Zeroizing::new(pem.into_contents());
+    match tag.as_str() {
+        "EC PRIVATE KEY" => {
             let sd: SecretDocument = DecodeEcPrivateKey::from_sec1_der(&der).map_err(|e| {
                 AdacError::Encoding(format!("Error decoding EC Private Key: {}", e))
             })?;
             pkcs8_parse_key(sd.to_bytes().to_vec())
         }
-        ("PRIVATE KEY", der) => pkcs8_parse_key(der),
-        (_, _) => Err(AdacError::Encoding("Unsupported pem tag".to_string())),
+        "PRIVATE KEY" => pkcs8_parse_key(der),
+        _ => Err(AdacError::Encoding("Unsupported pem tag".to_string())),
     }
 }
 

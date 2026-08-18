@@ -5,6 +5,7 @@ use adac::{AdacError, KeyOptions, KeyOptions::*};
 use cryptoki::object::{Attribute, KeyType, MlDsaParameterSetType, ObjectClass, ObjectHandle};
 use cryptoki::session::Session;
 use sha2::Digest;
+use zeroize::Zeroizing;
 
 pub(crate) fn parameter_set(key_type: KeyOptions) -> Result<MlDsaParameterSetType, AdacError> {
     match key_type {
@@ -48,7 +49,7 @@ pub fn generate_keypair(
 pub fn import_key(
     session: &Session,
     key_type: KeyOptions,
-    key: Vec<u8>,
+    key: Zeroizing<Vec<u8>>,
 ) -> Result<(String, Vec<u8>, Vec<u8>, ObjectHandle, ObjectHandle), AdacError> {
     let (seed, public_key, spki) = adac_crypto::public::ml_dsa::pkcs8_import_parts(key_type, &key)?;
     let key_id = sha2::Sha256::digest(spki.as_slice());
@@ -71,7 +72,7 @@ pub fn import_key(
         .create_object(&public_key_template)
         .map_err(|e| AdacError::CryptoProviderError(e.to_string()))?;
 
-    let private_key_template = vec![
+    let mut private_key_template = vec![
         Attribute::Token(true),
         Attribute::Private(true),
         Attribute::Sensitive(true),
@@ -80,12 +81,12 @@ pub fn import_key(
         Attribute::KeyType(KeyType::ML_DSA),
         Attribute::Class(ObjectClass::PRIVATE_KEY),
         Attribute::ParameterSet(parameter_set.into()),
-        Attribute::Seed(seed),
+        Attribute::Seed(seed.to_vec()),
         Attribute::Label(kid.clone().into_bytes()),
         Attribute::Id(key_id.to_vec()),
     ];
 
-    let private = super::create_private_object(session, public, &private_key_template)?;
+    let private = super::create_private_object(session, public, &mut private_key_template)?;
 
     Ok((kid, key_id.to_vec(), spki, private, public))
 }

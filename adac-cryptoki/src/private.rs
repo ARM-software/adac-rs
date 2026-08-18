@@ -10,6 +10,7 @@ use cryptoki::object::{Attribute, ObjectHandle};
 use cryptoki::session::Session;
 use cryptoki::types::Ulong;
 use sha2::Digest;
+use zeroize::{Zeroize, Zeroizing};
 
 pub mod ec;
 pub mod mldsa;
@@ -37,11 +38,15 @@ pub fn generate_keypair(
     }
 }
 
-pub fn import_key(
+pub fn import_key<K>(
     session: &Session,
     key_type: KeyOptions,
-    key: Vec<u8>,
-) -> Result<(String, Vec<u8>, Vec<u8>, ObjectHandle, ObjectHandle), AdacError> {
+    key: K,
+) -> Result<(String, Vec<u8>, Vec<u8>, ObjectHandle, ObjectHandle), AdacError>
+where
+    K: Into<Zeroizing<Vec<u8>>>,
+{
+    let key = key.into();
     match key_type {
         EcdsaP256Sha256 | EcdsaP384Sha384 | EcdsaP521Sha512 | Ed25519Sha512 | Ed448Shake256 => {
             ec::import_key(session, key_type, key)
@@ -93,9 +98,24 @@ pub(crate) fn unique_key_object(
 pub(crate) fn create_private_object(
     session: &Session,
     public: ObjectHandle,
-    private_key_template: &[Attribute],
+    private_key_template: &mut [Attribute],
 ) -> Result<ObjectHandle, AdacError> {
-    match session.create_object(private_key_template) {
+    let result = session.create_object(private_key_template);
+    for attribute in private_key_template {
+        match attribute {
+            Attribute::Value(value)
+            | Attribute::Seed(value)
+            | Attribute::PrivateExponent(value)
+            | Attribute::Prime1(value)
+            | Attribute::Prime2(value)
+            | Attribute::Exponent1(value)
+            | Attribute::Exponent2(value)
+            | Attribute::Coefficient(value) => value.zeroize(),
+            _ => {}
+        }
+    }
+
+    match result {
         Ok(private) => Ok(private),
         Err(error) => {
             let primary = error.to_string();

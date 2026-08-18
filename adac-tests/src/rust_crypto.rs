@@ -482,7 +482,7 @@ mod tests {
         key_paths: Vec<&str>,
         test_file: Option<&str>,
     ) {
-        let keys: Vec<Vec<u8>> = key_paths.iter().map(|p| load_key(p).unwrap().1).collect();
+        let keys: Vec<_> = key_paths.iter().map(|p| load_key(p).unwrap().1).collect();
         let mut crypto = adac_crypto_rust::RustCryptoProvider::new_deterministic_for_tests();
 
         let mut chain = vec![];
@@ -525,7 +525,7 @@ mod tests {
     }
 
     fn rust_crypto_root_sig_test(key_type: KeyOptions, key_path: &str, test_file: &str) {
-        let key: Vec<u8> = load_key(key_path).unwrap().1;
+        let key = load_key(key_path).unwrap().1;
         let mut crypto = adac_crypto_rust::RustCryptoProvider::new_deterministic_for_tests();
 
         let mut chain = vec![];
@@ -569,7 +569,7 @@ mod tests {
             "resources/keys/EcdsaP384Key-2.pk8",
         ];
 
-        let keys: Vec<Vec<u8>> = key_paths.iter().map(|p| load_key(p).unwrap().1).collect();
+        let keys: Vec<_> = key_paths.iter().map(|p| load_key(p).unwrap().1).collect();
         let mut crypto = adac_crypto_rust::RustCryptoProvider::default();
 
         let key_type = EcdsaP384Sha384;

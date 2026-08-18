@@ -26,11 +26,14 @@ impl Pkcs11Provider {
         })
     }
 
-    pub fn import_key(
+    pub fn import_key<K>(
         &mut self,
         key_type: KeyOptions,
-        key: Vec<u8>,
-    ) -> Result<(String, Vec<u8>, Vec<u8>, ObjectHandle, ObjectHandle), AdacError> {
+        key: K,
+    ) -> Result<(String, Vec<u8>, Vec<u8>, ObjectHandle, ObjectHandle), AdacError>
+    where
+        K: Into<Zeroizing<Vec<u8>>>,
+    {
         private::import_key(&self.session, key_type, key)
     }
 

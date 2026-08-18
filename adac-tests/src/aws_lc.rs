@@ -124,7 +124,7 @@ mod tests {
 
     fn ecdsa_chain_sig_test(key_type: KeyOptions, key_paths: Vec<&str>, test_file: Option<&str>) {
         let mut crypto = adac_crypto_aws_lc::AwsLcCryptoProvider::default();
-        let keys: Vec<Vec<u8>> = key_paths.iter().map(|p| load_key(p).unwrap().1).collect();
+        let keys: Vec<_> = key_paths.iter().map(|p| load_key(p).unwrap().1).collect();
 
         let mut chain = vec![];
         let mut export = vec![];
