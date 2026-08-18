@@ -14,6 +14,7 @@ use der::oid::AssociatedOid;
 use pkcs8::{DecodePrivateKey, PrivateKeyInfo};
 use sha2::Digest;
 use spki::EncodePublicKey;
+use zeroize::Zeroizing;
 
 pub fn generate_ecdsa_keypair(
     session: &Session,
@@ -80,7 +81,7 @@ pub fn generate_eddsa_keypair(
 pub fn import_key(
     session: &Session,
     key_type: KeyOptions,
-    key: Vec<u8>,
+    key: Zeroizing<Vec<u8>>,
 ) -> Result<(String, Vec<u8>, Vec<u8>, ObjectHandle, ObjectHandle), AdacError> {
     let pk =
         PrivateKeyInfo::try_from(key.as_slice()).map_err(|e| AdacError::Encoding(e.to_string()))?;
@@ -98,7 +99,7 @@ pub fn import_key(
             let pk = p256::SecretKey::from_pkcs8_der(key.as_slice())
                 .map_err(|e| AdacError::Encoding(e.to_string()))?;
             (
-                pk.to_bytes().to_vec(),
+                Zeroizing::new(pk.to_bytes().to_vec()),
                 pk.public_key().to_sec1_bytes().to_vec(),
                 pk.public_key()
                     .to_public_key_der()
@@ -110,7 +111,7 @@ pub fn import_key(
             let pk = p384::SecretKey::from_pkcs8_der(key.as_slice())
                 .map_err(|e| AdacError::Encoding(e.to_string()))?;
             (
-                pk.to_bytes().to_vec(),
+                Zeroizing::new(pk.to_bytes().to_vec()),
                 pk.public_key().to_sec1_bytes().to_vec(),
                 pk.public_key()
                     .to_public_key_der()
@@ -122,7 +123,7 @@ pub fn import_key(
             let pk = p521::SecretKey::from_pkcs8_der(key.as_slice())
                 .map_err(|e| AdacError::Encoding(e.to_string()))?;
             (
-                pk.to_bytes().to_vec(),
+                Zeroizing::new(pk.to_bytes().to_vec()),
                 pk.public_key().to_sec1_bytes().to_vec(),
                 pk.public_key()
                     .to_public_key_der()
@@ -135,7 +136,7 @@ pub fn import_key(
                 .map_err(|e| AdacError::Encoding(e.to_string()))?;
             let pubk = pk.public_key.unwrap();
             (
-                pk.secret_key.to_vec(),
+                Zeroizing::new(pk.secret_key.to_vec()),
                 pubk.0.to_vec(),
                 pubk.to_public_key_der()
                     .map_err(|e| AdacError::Encoding(e.to_string()))?
@@ -146,7 +147,11 @@ pub fn import_key(
             if let (secret_key, Some(public_key), Some(spki)) =
                 adac_crypto_rust::ed_448::load_key(key.as_slice())?
             {
-                (secret_key.to_vec(), public_key.to_vec(), spki)
+                (
+                    Zeroizing::new(secret_key.to_vec()),
+                    public_key.to_vec(),
+                    spki,
+                )
             } else {
                 return Err(AdacError::Encoding("No public key".to_string()));
             }
@@ -179,7 +184,7 @@ pub fn import_key(
         .create_object(&pub_key_template)
         .map_err(|e| AdacError::CryptoProviderError(e.to_string()))?;
 
-    let private_key_template = vec![
+    let mut private_key_template = vec![
         Attribute::Token(true),
         Attribute::Private(true),
         Attribute::Sensitive(true),
@@ -188,12 +193,12 @@ pub fn import_key(
         Attribute::KeyType(kt),
         Attribute::Class(ObjectClass::PRIVATE_KEY),
         Attribute::EcParams(ec_params),
-        Attribute::Value(pk),
+        Attribute::Value(pk.to_vec()),
         Attribute::Label(kid.clone().into_bytes()),
         Attribute::Id(key_id.to_vec()),
     ];
 
-    let private = super::create_private_object(session, public, &private_key_template)?;
+    let private = super::create_private_object(session, public, &mut private_key_template)?;
 
     Ok((kid, key_id.to_vec(), spki, private, public))
 }

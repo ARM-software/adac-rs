@@ -9,6 +9,7 @@ use elliptic_curve::pkcs8::{EncodePublicKey, PrivateKeyInfo};
 use rsa::pkcs8::DecodePrivateKey;
 use rsa::traits::{PrivateKeyParts, PublicKeyParts};
 use sha2::Digest;
+use zeroize::Zeroizing;
 
 fn validate_private_key_size(
     key_type: KeyOptions,
@@ -55,7 +56,7 @@ pub fn generate_keypair(
 pub fn import_key(
     session: &Session,
     key_type: KeyOptions,
-    key: Vec<u8>,
+    key: Zeroizing<Vec<u8>>,
 ) -> Result<(String, Vec<u8>, Vec<u8>, ObjectHandle, ObjectHandle), AdacError> {
     let pk =
         PrivateKeyInfo::try_from(key.as_slice()).map_err(|e| AdacError::Encoding(e.to_string()))?;
@@ -118,7 +119,7 @@ pub fn import_key(
         private_key_template.append(&mut crt_template);
     }
 
-    let private = super::create_private_object(session, public, &private_key_template)?;
+    let private = super::create_private_object(session, public, &mut private_key_template)?;
 
     Ok((kid, key_id.to_vec(), spki, private, public))
 }

@@ -55,6 +55,7 @@ dependencies = [
  "sec1",
  "sm2",
  "spki 0.7.3",
+ "zeroize",
 ]
 
 [[package]]

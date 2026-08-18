@@ -13,6 +13,7 @@ use ml_dsa::pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodeP
 use ml_dsa::signature::Keypair;
 use ml_dsa::{MlDsa44, MlDsa65, MlDsa87, MlDsaParams, SigningKey, VerifyingKey};
 use std::marker::PhantomData;
+use zeroize::{Zeroize, Zeroizing};
 
 // TODO: KeyConverter is only needed until ml-dsa supports the updated IETF standard seed encoding.
 type B32 = Array<u8, U32>;
@@ -23,6 +24,12 @@ pub struct KeyConverter<P: MlDsaParams> {
     /// The seed this signing key was derived from
     seed: B32,
     phantom: PhantomData<P>,
+}
+
+impl<P: MlDsaParams> Drop for KeyConverter<P> {
+    fn drop(&mut self) {
+        self.seed.as_mut_slice().zeroize();
+    }
 }
 
 impl<P> TryFrom<PrivateKeyInfoRef<'_>> for KeyConverter<P>
@@ -86,7 +93,7 @@ where
     SigningKey<P>: DecodePrivateKey,
     VerifyingKey<P>: EncodePublicKey,
 {
-    pub fn fix_pkcs8_der(input: &[u8]) -> Result<Vec<u8>, AdacError> {
+    pub fn fix_pkcs8_der(input: &[u8]) -> Result<Zeroizing<Vec<u8>>, AdacError> {
         let out = KeyConverter::<P>::from_pkcs8_der(input)
             .map_err(|e| {
                 AdacError::Encoding(format!("Error decoding ML-DSA key from PKCS#8: {}", e))
@@ -97,7 +104,7 @@ where
             })?
             .as_bytes()
             .to_vec();
-        Ok(out)
+        Ok(Zeroizing::new(out))
     }
 
     pub fn adac_from_pkcs8(key: &Vec<u8>) -> Result<Vec<u8>, AdacError> {
@@ -111,19 +118,19 @@ where
         Ok(evk.to_vec())
     }
 
-    pub fn seed_from_pkcs8(key: &[u8]) -> Result<Vec<u8>, AdacError> {
+    pub fn seed_from_pkcs8(key: &[u8]) -> Result<Zeroizing<Vec<u8>>, AdacError> {
         let converter = KeyConverter::<P>::from_pkcs8_der(key).map_err(|e| {
             AdacError::Encoding(format!("Error decoding ML-DSA key from PKCS#8: {}", e))
         })?;
-        Ok(converter.seed.to_vec())
+        Ok(Zeroizing::new(converter.seed.to_vec()))
     }
 }
 
 pub fn pkcs8_import_parts(
     key_type: KeyOptions,
     key: &[u8],
-) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), AdacError> {
-    let key = key.to_vec();
+) -> Result<(Zeroizing<Vec<u8>>, Vec<u8>, Vec<u8>), AdacError> {
+    let key = Zeroizing::new(key.to_vec());
     let (seed, adac, spki) = match key_type {
         MlDsa44Sha256 => (
             KeyConverter::<MlDsa44>::seed_from_pkcs8(key.as_slice())?,

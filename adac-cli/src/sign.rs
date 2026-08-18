@@ -98,7 +98,7 @@ pub fn certificate_sign_command(
             source: anyhow::anyhow!("Error loading key file: {:?}", e),
         })?;
         crypto
-            .load_key(kt, AdacKeyFormat::Pkcs8, private_key.clone().as_slice())
+            .load_key(kt, AdacKeyFormat::Pkcs8, private_key.as_slice())
             .map_err(|e| CommandError::AdacError {
                 source: anyhow::anyhow!("Error parsing PKCS#8 key: {:?}", e),
             })?;

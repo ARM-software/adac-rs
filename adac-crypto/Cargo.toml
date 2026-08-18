@@ -29,6 +29,7 @@ rsa = { workspace = true }
 sec1 = { workspace = true }
 spki = { workspace = true }
 sm2 = { workspace = true }
+zeroize = { workspace = true }
 
 [lints.clippy]
 dbg_macro = "deny"
