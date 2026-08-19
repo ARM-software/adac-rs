@@ -16,6 +16,30 @@ use sha2::Digest;
 use spki::EncodePublicKey;
 use zeroize::Zeroizing;
 
+fn ed25519_import_parts(key: &[u8]) -> Result<(Zeroizing<Vec<u8>>, Vec<u8>, Vec<u8>), AdacError> {
+    let keypair = ed25519::pkcs8::KeypairBytes::from_pkcs8_der(key)
+        .map_err(|e| AdacError::Encoding(e.to_string()))?;
+    let signing_key = ed25519_dalek::SigningKey::from_bytes(&keypair.secret_key);
+    let public_key = signing_key.verifying_key().to_bytes();
+    if keypair
+        .public_key
+        .is_some_and(|embedded| embedded.0 != public_key)
+    {
+        return Err(AdacError::InconsistentCrypto);
+    }
+
+    let public_key = ed25519::pkcs8::PublicKeyBytes(public_key);
+    let spki = public_key
+        .to_public_key_der()
+        .map_err(|e| AdacError::Encoding(e.to_string()))?
+        .to_vec();
+    Ok((
+        Zeroizing::new(keypair.secret_key.to_vec()),
+        public_key.0.to_vec(),
+        spki,
+    ))
+}
+
 pub fn generate_ecdsa_keypair(
     session: &Session,
     key_type: KeyOptions,
@@ -131,18 +155,7 @@ pub fn import_key(
                     .to_vec(),
             )
         }
-        (Ed25519Sha512, ed25519::pkcs8::ALGORITHM_OID) => {
-            let pk = ed25519::pkcs8::KeypairBytes::from_pkcs8_der(key.as_slice())
-                .map_err(|e| AdacError::Encoding(e.to_string()))?;
-            let pubk = pk.public_key.unwrap();
-            (
-                Zeroizing::new(pk.secret_key.to_vec()),
-                pubk.0.to_vec(),
-                pubk.to_public_key_der()
-                    .map_err(|e| AdacError::Encoding(e.to_string()))?
-                    .to_vec(),
-            )
-        }
+        (Ed25519Sha512, ed25519::pkcs8::ALGORITHM_OID) => ed25519_import_parts(key.as_slice())?,
         (Ed448Shake256, adac_crypto::ED_448_OID) => {
             if let (secret_key, Some(public_key), Some(spki)) =
                 adac_crypto_rust::ed_448::load_key(key.as_slice())?
@@ -236,4 +249,44 @@ pub fn find_keypair(
     let public = super::unique_key_object(&public_keys, "public key", key_id)?;
 
     Ok((private, public))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pkcs8::EncodePrivateKey;
+
+    #[test]
+    fn ed25519_import_derives_missing_public_key() {
+        let secret_key = [0x42u8; 32];
+        let keypair = ed25519::pkcs8::KeypairBytes {
+            secret_key,
+            public_key: None,
+        };
+        let pkcs8 = keypair.to_pkcs8_der().unwrap();
+
+        let (decoded_secret, public_key, _) = ed25519_import_parts(pkcs8.as_bytes()).unwrap();
+
+        assert_eq!(decoded_secret.as_slice(), secret_key);
+        assert_eq!(
+            public_key,
+            ed25519_dalek::SigningKey::from_bytes(&secret_key)
+                .verifying_key()
+                .to_bytes()
+        );
+    }
+
+    #[test]
+    fn ed25519_import_rejects_mismatched_embedded_public_key() {
+        let keypair = ed25519::pkcs8::KeypairBytes {
+            secret_key: [0x42u8; 32],
+            public_key: Some(ed25519::pkcs8::PublicKeyBytes([0x24u8; 32])),
+        };
+        let pkcs8 = keypair.to_pkcs8_der().unwrap();
+
+        assert!(matches!(
+            ed25519_import_parts(pkcs8.as_bytes()),
+            Err(AdacError::InconsistentCrypto)
+        ));
+    }
 }
