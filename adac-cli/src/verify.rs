@@ -213,7 +213,7 @@ pub fn verify_command(
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>();
-        let signature_verified = errors.is_empty();
+        let signature_verified = token_result.signature_verified;
         error_count += errors.len() as u64;
         token_effective_permissions = token_result.effective_permissions;
         token_effective_soc_id = token_result.effective_soc_id;

@@ -48,6 +48,10 @@ pub enum ValidationIssue {
     SignatureVerificationFailed {
         source: String,
     },
+    CertificatePublicKeyInvalid {
+        source: String,
+    },
+    CertificateChainUnauthenticated,
     TokenKeyTypeMismatch,
     TokenVerificationFailed {
         source: String,
@@ -84,6 +88,12 @@ impl ValidationIssue {
             }
             Self::SignatureVerificationFailed { source } => {
                 format!("Signature verification failed: {source}")
+            }
+            Self::CertificatePublicKeyInvalid { source } => {
+                format!("Certificate public key is invalid: {source}")
+            }
+            Self::CertificateChainUnauthenticated => {
+                "Certificate chain is not authenticated".to_string()
             }
             Self::TokenKeyTypeMismatch => "Token signature algorithm does not match".to_string(),
             Self::TokenVerificationFailed { source } => {
@@ -149,6 +159,8 @@ pub struct ChainValidationResult {
     pub chain_errors: Vec<ValidationIssue>,
     pub certificates: Vec<CertificateValidationResult>,
     pub effective: EffectiveChainConstraints,
+    /// Whether every certificate and the configured terminal-role policy validated.
+    pub authenticated: bool,
     pub leaf_terminated: bool,
 }
 
@@ -172,6 +184,7 @@ impl ChainValidationResult {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TokenValidationResult {
+    pub signature_verified: bool,
     pub errors: Vec<ValidationIssue>,
     pub effective_permissions: Option<[u8; 16]>,
     pub effective_soc_id: Option<[u8; 16]>,
@@ -190,6 +203,7 @@ pub struct ChainValidator<'a> {
     effective: EffectiveChainConstraints,
     previous_public_key: Option<Vec<u8>>,
     terminal_key_type: Option<KeyOptions>,
+    authenticated: bool,
 }
 
 impl<'a> ChainValidator<'a> {
@@ -205,6 +219,7 @@ impl<'a> ChainValidator<'a> {
             effective: EffectiveChainConstraints::default(),
             previous_public_key: None,
             terminal_key_type: None,
+            authenticated: true,
         }
     }
 
@@ -218,6 +233,13 @@ impl<'a> ChainValidator<'a> {
         let key_type = header.key_type;
         let mut result = CertificateValidationResult::new(index, role);
 
+        if let Some(previous) = self.certificates.last_mut()
+            && previous.role == CertificateRole::AdacCrtRoleLeaf
+        {
+            previous.errors.push(ValidationIssue::LeafBeforeLast);
+            self.authenticated = false;
+        }
+
         if index == 0 && role != CertificateRole::AdacCrtRoleRoot {
             result.errors.push(ValidationIssue::FirstCertificateNotRoot);
         }
@@ -226,6 +248,16 @@ impl<'a> ChainValidator<'a> {
         }
 
         self.update_effective_constraints(&header, &mut result);
+
+        if let Err(e) =
+            crate::public::AdacPublicKey::from_adac(header.key_type, certificate.get_public_key())
+        {
+            result
+                .errors
+                .push(ValidationIssue::CertificatePublicKeyInvalid {
+                    source: format!("{e:?}"),
+                });
+        }
 
         let public_key = self
             .previous_public_key
@@ -239,6 +271,10 @@ impl<'a> ChainValidator<'a> {
                 });
         }
 
+        if !result.errors.is_empty() {
+            self.authenticated = false;
+        }
+
         self.previous_public_key = Some(certificate.get_public_key().to_vec());
         self.terminal_key_type = Some(key_type);
         self.certificates.push(result.clone());
@@ -247,6 +283,7 @@ impl<'a> ChainValidator<'a> {
 
     pub fn validate_token(&self, token: &AdacToken, challenge: &[u8]) -> TokenValidationResult {
         let mut result = TokenValidationResult {
+            signature_verified: false,
             errors: Vec::new(),
             effective_permissions: None,
             effective_soc_id: None,
@@ -256,6 +293,17 @@ impl<'a> ChainValidator<'a> {
             result.errors.push(ValidationIssue::EmptyChain);
             return result;
         };
+
+        let chain_authenticated = self.authenticated
+            && (!self.policy.require_leaf_last
+                || self.certificates.last().is_some_and(|certificate| {
+                    certificate.role == CertificateRole::AdacCrtRoleLeaf
+                }));
+        if !chain_authenticated {
+            result
+                .errors
+                .push(ValidationIssue::CertificateChainUnauthenticated);
+        }
 
         if self.terminal_key_type != Some(token.header().signature_type) {
             result.errors.push(ValidationIssue::TokenKeyTypeMismatch);
@@ -270,14 +318,23 @@ impl<'a> ChainValidator<'a> {
                 });
             return result;
         }
+        result.signature_verified = true;
+
+        if !chain_authenticated {
+            return result;
+        }
 
         let mut effective_permissions = self.effective.permissions;
         let requested_permissions = token.header().requested_permissions;
         for (i, permission) in effective_permissions.iter_mut().enumerate() {
             *permission &= requested_permissions[i];
         }
-        result.effective_permissions = Some(effective_permissions);
         self.update_effective_token_constraints(token, &mut result);
+        if result.errors.is_empty() {
+            result.effective_permissions = Some(effective_permissions);
+        } else {
+            result.effective_soc_id = None;
+        }
         result
     }
 
@@ -327,15 +384,6 @@ impl<'a> ChainValidator<'a> {
             chain_errors.push(ValidationIssue::EmptyChain);
         }
 
-        if self.certificates.len() > 1 {
-            let last_index = self.certificates.len() - 1;
-            for certificate in self.certificates.iter_mut().take(last_index) {
-                if certificate.role == CertificateRole::AdacCrtRoleLeaf {
-                    certificate.errors.push(ValidationIssue::LeafBeforeLast);
-                }
-            }
-        }
-
         let leaf_terminated = self
             .certificates
             .last()
@@ -348,10 +396,17 @@ impl<'a> ChainValidator<'a> {
             last.errors.push(ValidationIssue::MissingLeafLast);
         }
 
+        let authenticated = chain_errors.is_empty()
+            && self
+                .certificates
+                .iter()
+                .all(|certificate| certificate.errors.is_empty());
+
         ChainValidationResult {
             chain_errors,
             certificates: self.certificates,
             effective: self.effective,
+            authenticated,
             leaf_terminated,
         }
     }
@@ -456,7 +511,8 @@ pub fn validate_token_signed_by_last_certificate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use adac::{AdacError, CertificateHeader, traits::AdacKeyFormat};
+    use adac::{AdacError, CertificateHeader, TokenHeader, traits::AdacKeyFormat};
+    use p256::elliptic_curve::sec1::ToEncodedPoint;
 
     struct AcceptingProvider;
 
@@ -491,16 +547,36 @@ mod tests {
         }
     }
 
-    fn certificate(role: CertificateRole) -> AdacCertificate {
+    fn valid_public_key() -> Vec<u8> {
+        let secret_key = p256::SecretKey::from_slice(&[1u8; 32]).unwrap();
+        secret_key.public_key().to_encoded_point(false).as_bytes()[1..].to_vec()
+    }
+
+    fn certificate_with_public_key(role: CertificateRole, public_key: Vec<u8>) -> AdacCertificate {
         let key_type = KeyOptions::EcdsaP256Sha256;
-        let (public_key_size, _, _) = adac::certificate::adac_sizes_from_crypto(key_type).unwrap();
         let header = CertificateHeader {
             role,
             ..CertificateHeader::default()
         };
-        let public_key = vec![0u8; public_key_size];
         let mut provider = AcceptingProvider;
         AdacCertificate::sign(key_type, header, &public_key, None, &mut provider).unwrap()
+    }
+
+    fn certificate(role: CertificateRole) -> AdacCertificate {
+        certificate_with_public_key(role, valid_public_key())
+    }
+
+    fn token() -> AdacToken {
+        let key_type = KeyOptions::EcdsaP256Sha256;
+        let mut provider = AcceptingProvider;
+        AdacToken::sign(
+            key_type,
+            TokenHeader::default(),
+            None,
+            &[0u8; adac::TOKEN_CHALLENGE_SIZE],
+            &mut provider,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -518,6 +594,7 @@ mod tests {
             result.certificates[1].errors[0],
             ValidationIssue::LeafBeforeLast
         );
+        assert!(!result.authenticated);
     }
 
     #[test]
@@ -527,5 +604,40 @@ mod tests {
         let result = validate_chain(&[], &crypto);
 
         assert_eq!(result.chain_errors[0], ValidationIssue::EmptyChain);
+        assert!(!result.authenticated);
+    }
+
+    #[test]
+    fn validate_chain_rejects_malformed_terminal_public_key() {
+        let crypto = AcceptingProvider;
+        let chain = vec![
+            certificate(CertificateRole::AdacCrtRoleRoot),
+            certificate_with_public_key(CertificateRole::AdacCrtRoleLeaf, vec![0u8; 64]),
+        ];
+
+        let result = validate_chain(&chain, &crypto);
+
+        assert!(matches!(
+            result.certificates[1].errors.as_slice(),
+            [ValidationIssue::CertificatePublicKeyInvalid { .. }]
+        ));
+        assert!(!result.authenticated);
+    }
+
+    #[test]
+    fn validate_token_does_not_authorize_an_invalid_chain() {
+        let crypto = AcceptingProvider;
+        let mut validator = ChainValidator::new(&crypto);
+        validator.push_certificate(&certificate(CertificateRole::AdacCrtRoleInt));
+
+        let result = validator.validate_token(&token(), &[0u8; adac::TOKEN_CHALLENGE_SIZE]);
+
+        assert_eq!(
+            result.errors,
+            vec![ValidationIssue::CertificateChainUnauthenticated]
+        );
+        assert!(result.signature_verified);
+        assert_eq!(result.effective_permissions, None);
+        assert_eq!(result.effective_soc_id, None);
     }
 }
