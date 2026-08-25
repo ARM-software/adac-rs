@@ -146,6 +146,7 @@ pub fn certificate_sign_command(
         c.push(certificate);
         c
     } else {
+        shared::verify_self_signed_certificate(&certificate)?;
         vec![certificate]
     };
 
