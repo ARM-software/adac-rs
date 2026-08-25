@@ -330,6 +330,7 @@ pub fn certificate_merge_command(
         c.push(certificate);
         c
     } else {
+        shared::verify_self_signed_certificate(&certificate)?;
         vec![certificate]
     };
     let certificate = save_certificates(&chain).map_err(|e| CommandError::AdacError {

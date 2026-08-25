@@ -145,6 +145,20 @@ pub(crate) fn verify_certificate_signed_by_issuer(
         })
 }
 
+pub(crate) fn verify_self_signed_certificate(
+    certificate: &AdacCertificate,
+) -> Result<(), CommandError> {
+    let crypto = adac_crypto_rust::RustCryptoProvider::default();
+    certificate
+        .verify(certificate.get_public_key(), &crypto)
+        .map_err(|e| CommandError::AdacError {
+            source: anyhow::anyhow!(
+                "New self-signed certificate does not verify with its embedded public key: {:?}",
+                e
+            ),
+        })
+}
+
 pub(crate) fn verify_token_signed_by_last_certificate(
     chain: &[AdacCertificate],
     token: &AdacToken,

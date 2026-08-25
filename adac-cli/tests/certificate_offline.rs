@@ -167,3 +167,48 @@ fn certificate_offline_merge_rejects_invalid_signature() {
 
     let _ = fs::remove_dir_all(dir);
 }
+
+#[test]
+fn certificate_offline_merge_rejects_invalid_self_signature() {
+    let dir = common::make_temp_dir("adac-cli-certificate-offline-tests");
+    let config_path = common::write_verify_config(&dir);
+    let public_key = common::write_public_key_from_private(&dir, "EcdsaP384Key-1.pk8", "root.pub");
+    let prepared_path = dir.join("prepared.pem");
+    let tbs_path = dir.join("prepared.tbs");
+    let signature_path = dir.join("signature.der");
+
+    certificate_prepare_command(
+        &config_path,
+        &public_key,
+        &Some("root".to_string()),
+        &Some(prepared_path.clone()),
+        &Some(tbs_path.clone()),
+        &None,
+    )
+    .unwrap();
+
+    let signature = common::sign_with_private_key(
+        "EcdsaP384Key-0.pk8",
+        fs::read(&tbs_path).unwrap().as_slice(),
+    );
+    fs::write(
+        &signature_path,
+        common::ecdsa_p384_signature_to_der(&signature),
+    )
+    .unwrap();
+
+    let err = certificate_merge_command(&None, &None, &prepared_path, &signature_path).unwrap_err();
+
+    match err {
+        CommandError::AdacError { source } => {
+            assert!(
+                source
+                    .to_string()
+                    .contains("does not verify with its embedded public key")
+            );
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+
+    let _ = fs::remove_dir_all(dir);
+}
