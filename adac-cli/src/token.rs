@@ -499,6 +499,35 @@ fn normalize_detached_signature(
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_detached_signature_rejects_nonzero_mldsa_padding() {
+        for key_type in [KeyOptions::MlDsa65Sha384, KeyOptions::MlDsa87Sha512] {
+            let (_, signature_size) = token::adac_sizes_from_crypto(key_type).unwrap();
+            let mut signature = vec![0u8; signature_size];
+            *signature.last_mut().unwrap() = 1;
+
+            assert!(normalize_detached_signature(key_type, &signature).is_err());
+        }
+    }
+
+    #[test]
+    fn normalize_detached_signature_preserves_canonical_fixed_size_signature() {
+        for key_type in [KeyOptions::MlDsa65Sha384, KeyOptions::MlDsa87Sha512] {
+            let (_, signature_size) = token::adac_sizes_from_crypto(key_type).unwrap();
+            let signature = vec![0u8; signature_size];
+
+            assert_eq!(
+                normalize_detached_signature(key_type, &signature).unwrap(),
+                signature
+            );
+        }
+    }
+}
+
 struct PrepareCryptoProvider {
     key_type: KeyOptions,
     hash: Vec<u8>,
