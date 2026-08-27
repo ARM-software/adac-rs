@@ -9,6 +9,21 @@ use std::fmt;
 
 const TOKEN_SOC_ID_EXTENSION_TYPE: u16 = 0x0004;
 
+fn update_scope_constraint<T: Copy + PartialEq>(
+    effective: &mut T,
+    current: T,
+    neutral: T,
+) -> Option<(T, T)> {
+    if *effective == neutral {
+        *effective = current;
+        None
+    } else if current != neutral && *effective != current {
+        Some((*effective, current))
+    } else {
+        None
+    }
+}
+
 /// Chain-validation behavior knobs.
 ///
 /// The default policy accepts chains that do not terminate in a Leaf certificate
@@ -433,40 +448,36 @@ impl<'a> ChainValidator<'a> {
             });
         }
 
-        if self.effective.soc_id == [0x0u8; 16] {
-            self.effective.soc_id = soc_id;
-        } else if self.effective.soc_id != soc_id {
-            result.errors.push(ValidationIssue::SocIdMismatch {
-                previous: self.effective.soc_id,
-                current: soc_id,
-            });
+        if let Some((previous, current)) =
+            update_scope_constraint(&mut self.effective.soc_id, soc_id, [0u8; 16])
+        {
+            result
+                .errors
+                .push(ValidationIssue::SocIdMismatch { previous, current });
         }
 
-        if self.effective.soc_class == 0 {
-            self.effective.soc_class = soc_class;
-        } else if soc_class != 0 && self.effective.soc_class != soc_class {
-            result.errors.push(ValidationIssue::SocClassMismatch {
-                previous: self.effective.soc_class,
-                current: soc_class,
-            });
+        if let Some((previous, current)) =
+            update_scope_constraint(&mut self.effective.soc_class, soc_class, 0)
+        {
+            result
+                .errors
+                .push(ValidationIssue::SocClassMismatch { previous, current });
         }
 
-        if self.effective.lifecycle == 0 {
-            self.effective.lifecycle = lifecycle;
-        } else if lifecycle != 0 && self.effective.lifecycle != lifecycle {
-            result.errors.push(ValidationIssue::LifecycleMismatch {
-                previous: self.effective.lifecycle,
-                current: lifecycle,
-            });
+        if let Some((previous, current)) =
+            update_scope_constraint(&mut self.effective.lifecycle, lifecycle, 0)
+        {
+            result
+                .errors
+                .push(ValidationIssue::LifecycleMismatch { previous, current });
         }
 
-        if self.effective.oem_constraint == 0 {
-            self.effective.oem_constraint = oem_constraint;
-        } else if oem_constraint != 0 && self.effective.oem_constraint != oem_constraint {
-            result.errors.push(ValidationIssue::OemConstraintMismatch {
-                previous: self.effective.oem_constraint,
-                current: oem_constraint,
-            });
+        if let Some((previous, current)) =
+            update_scope_constraint(&mut self.effective.oem_constraint, oem_constraint, 0)
+        {
+            result
+                .errors
+                .push(ValidationIssue::OemConstraintMismatch { previous, current });
         }
 
         for (i, permission) in self.effective.permissions.iter_mut().enumerate() {
@@ -566,6 +577,17 @@ mod tests {
         certificate_with_public_key(role, valid_public_key())
     }
 
+    fn certificate_with_soc_id(role: CertificateRole, soc_id: [u8; 16]) -> AdacCertificate {
+        let key_type = KeyOptions::EcdsaP256Sha256;
+        let header = CertificateHeader {
+            role,
+            soc_id,
+            ..CertificateHeader::default()
+        };
+        let mut provider = AcceptingProvider;
+        AdacCertificate::sign(key_type, header, &valid_public_key(), None, &mut provider).unwrap()
+    }
+
     fn token() -> AdacToken {
         let key_type = KeyOptions::EcdsaP256Sha256;
         let mut provider = AcceptingProvider;
@@ -639,5 +661,29 @@ mod tests {
         assert!(result.signature_verified);
         assert_eq!(result.effective_permissions, None);
         assert_eq!(result.effective_soc_id, None);
+    }
+
+    #[test]
+    fn neutral_soc_id_does_not_conflict_with_effective_constraint() {
+        let crypto = AcceptingProvider;
+        let restricted = [0x5au8; 16];
+        let chains = [
+            vec![
+                certificate_with_soc_id(CertificateRole::AdacCrtRoleRoot, restricted),
+                certificate_with_soc_id(CertificateRole::AdacCrtRoleInt, [0u8; 16]),
+                certificate_with_soc_id(CertificateRole::AdacCrtRoleLeaf, restricted),
+            ],
+            vec![
+                certificate_with_soc_id(CertificateRole::AdacCrtRoleRoot, [0u8; 16]),
+                certificate_with_soc_id(CertificateRole::AdacCrtRoleInt, restricted),
+                certificate_with_soc_id(CertificateRole::AdacCrtRoleLeaf, [0u8; 16]),
+            ],
+        ];
+
+        for chain in chains {
+            let result = validate_chain(&chain, &crypto);
+            assert!(result.authenticated);
+            assert_eq!(result.effective.soc_id, restricted);
+        }
     }
 }
