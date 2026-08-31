@@ -628,11 +628,20 @@ fn validate_extension_tlv_sequence<'a>(
     extensions: &'a [u8],
     field: &str,
 ) -> Result<Vec<adac::AdacTlv<'a>>, AdacError> {
-    adac::parse_tlv_sequence(extensions).map_err(|e| {
+    let tlvs = adac::parse_tlv_sequence(extensions).map_err(|e| {
         AdacError::Encoding(format!(
             "Value for {field} is not a valid TLV sequence: {e:?}"
         ))
-    })
+    })?;
+    if tlvs
+        .iter()
+        .any(|tlv| tlv.header.type_id == adac::TLV_TYPE_NULL)
+    {
+        return Err(AdacError::Encoding(format!(
+            "Value for {field} contains NULL_TYPE, which is not valid in an extension sequence"
+        )));
+    }
+    Ok(tlvs)
 }
 
 fn parse_structured_extension(
@@ -685,11 +694,17 @@ fn parse_extension_numeric_type(value: &str, field: &str) -> Result<u16, AdacErr
             "Value for {field} extension type must have 4 hexadecimal digits"
         )));
     }
-    u16::from_str_radix(value, 16).map_err(|_| {
+    let type_id = u16::from_str_radix(value, 16).map_err(|_| {
         AdacError::Encoding(format!(
             "Value for {field} extension type is not properly hexadecimal encoded"
         ))
-    })
+    })?;
+    if type_id == adac::TLV_TYPE_NULL {
+        return Err(AdacError::Encoding(format!(
+            "Value for {field} uses NULL_TYPE, which is not valid for an extension"
+        )));
+    }
+    Ok(type_id)
 }
 
 fn parse_extension_value(value: &str, field: &str) -> Result<Vec<u8>, AdacError> {
@@ -1133,6 +1148,48 @@ extensions = "01020304"
             err,
             AdacError::Encoding(message)
                 if message == "Value for default 'extensions' is not a valid TLV sequence: InvalidLength"
+        ));
+    }
+
+    #[test]
+    fn extension_legacy_string_rejects_null_type() {
+        let extension = adac::tlv_wrap(adac::TLV_TYPE_NULL, vec![0xaa]);
+        let config = format!(
+            r#"
+[defaults]
+version_major = 1
+version_minor = 1
+requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = "{}"
+"#,
+            base16ct::lower::encode_string(&extension)
+        );
+
+        let err = parse_adac_token_configuration(&config, None).unwrap_err();
+
+        assert!(matches!(
+            err,
+            AdacError::Encoding(message)
+                if message == "Value for default 'extensions' contains NULL_TYPE, which is not valid in an extension sequence"
+        ));
+    }
+
+    #[test]
+    fn structured_extension_rejects_null_type() {
+        let config = r#"
+[defaults]
+version_major = 1
+version_minor = 1
+requested_permissions = "0xAAAAAAAAFFFFFFFFFFFFFFFFFFFFFFFF"
+extensions = "0x0000:aa"
+"#;
+
+        let err = parse_adac_token_configuration(config, None).unwrap_err();
+
+        assert!(matches!(
+            err,
+            AdacError::Encoding(message)
+                if message == "Value for default 'extensions' uses NULL_TYPE, which is not valid for an extension"
         ));
     }
 
