@@ -391,6 +391,7 @@ pub struct AdacTlvHeader {
 
 pub const TLV_FLAG_CRITICAL: u8 = 0x01;
 pub const TLV_KNOWN_FLAGS: u8 = TLV_FLAG_CRITICAL;
+pub const TLV_TYPE_NULL: u16 = 0x0000;
 
 #[derive(Debug, Copy, Clone)]
 pub struct AdacTlv<'a> {
@@ -498,6 +499,11 @@ pub fn validate_tlv_flags_for_version(
     extensions: &[u8],
 ) -> Result<(), AdacError> {
     for tlv in parse_tlv_sequence(extensions)? {
+        if tlv.header.type_id == TLV_TYPE_NULL {
+            return Err(AdacError::Encoding(
+                "NULL_TYPE is not valid in an extension sequence".to_string(),
+            ));
+        }
         let flags = tlv.header.flags;
         if version == (AdacVersion { major: 1, minor: 0 }) && flags != 0 {
             return Err(AdacError::InconsistentVersion);
@@ -1051,5 +1057,16 @@ mod tests {
         assert!(
             validate_tlv_flags_for_version(AdacVersion { major: 1, minor: 1 }, &extensions).is_ok()
         );
+    }
+
+    #[test]
+    fn extension_validation_rejects_null_type() {
+        let extensions = tlv_wrap(TLV_TYPE_NULL, vec![]);
+
+        assert!(matches!(
+            validate_tlv_flags_for_version(AdacVersion { major: 1, minor: 1 }, &extensions),
+            Err(AdacError::Encoding(message))
+                if message == "NULL_TYPE is not valid in an extension sequence"
+        ));
     }
 }
