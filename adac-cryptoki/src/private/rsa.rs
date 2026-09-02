@@ -22,13 +22,14 @@ pub fn generate_keypair(
     key_type: KeyOptions,
 ) -> Result<(ObjectHandle, ObjectHandle), AdacError> {
     let public_exponent: Vec<u8> = vec![0x01, 0x00, 0x01];
-    let modulus_bits = adac::rsa_modulus_bits(key_type)? as u64;
+    let modulus_bits = cryptoki::types::Ulong::try_from(adac::rsa_modulus_bits(key_type)?)
+        .map_err(|_e| AdacError::InconsistentCrypto)?;
 
     let public_key_template = vec![
         Attribute::Token(true),
         Attribute::Private(false),
         Attribute::PublicExponent(public_exponent),
-        Attribute::ModulusBits(modulus_bits.into()),
+        Attribute::ModulusBits(modulus_bits),
         Attribute::KeyType(KeyType::RSA),
         Attribute::Verify(true),
     ];
