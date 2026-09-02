@@ -24,7 +24,6 @@ jobs:
 
   tests:
     name: Run tests
-    continue-on-error: true
     strategy:
       matrix:
         target:
