@@ -365,15 +365,25 @@ impl Commands {
 }
 
 static LOG_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
+const CLI_STACK_SIZE: usize = 8 * 1024 * 1024;
 
 fn main() {
     let cli = Cli::parse();
+    let output_format = cli.output_format;
+    let thread = std::thread::Builder::new()
+        .stack_size(CLI_STACK_SIZE)
+        .spawn(move || wrapped_main(&cli))
+        .expect("failed to create CLI thread");
+    let result = match thread.join() {
+        Ok(result) => result,
+        Err(payload) => std::panic::resume_unwind(payload),
+    };
 
-    match wrapped_main(&cli) {
+    match result {
         Ok(r) => std::process::exit(r),
         Err(error) => {
             tracing::error!(error = ?error, "command failed");
-            if let Err(report_err) = display_error(&error, cli.output_format) {
+            if let Err(report_err) = display_error(&error, output_format) {
                 eprintln!("error: {report_err}");
             }
             std::process::exit(1);
