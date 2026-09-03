@@ -4,7 +4,7 @@
 use crate::public::AdacPublicKey;
 use adac::{AdacError, KeyOptions::Ed25519Sha512};
 use der::Encode;
-use pkcs8::DecodePrivateKey;
+use ed25519::pkcs8::DecodePrivateKey;
 use spki::{DecodePublicKey, EncodePublicKey};
 
 pub fn from_adac(adac: &[u8]) -> Result<AdacPublicKey, AdacError> {

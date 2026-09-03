@@ -11,7 +11,7 @@ use cryptoki::object::{Attribute, KeyType, ObjectClass, ObjectHandle};
 use cryptoki::session::Session;
 use der::Encode;
 use der::oid::AssociatedOid;
-use pkcs8::{DecodePrivateKey, PrivateKeyInfo};
+use pkcs8::{DecodePrivateKey, PrivateKeyInfoRef};
 use sha2::Digest;
 use spki::EncodePublicKey;
 use zeroize::Zeroizing;
@@ -107,8 +107,8 @@ pub fn import_key(
     key_type: KeyOptions,
     key: Zeroizing<Vec<u8>>,
 ) -> Result<(String, Vec<u8>, Vec<u8>, ObjectHandle, ObjectHandle), AdacError> {
-    let pk =
-        PrivateKeyInfo::try_from(key.as_slice()).map_err(|e| AdacError::Encoding(e.to_string()))?;
+    let pk = PrivateKeyInfoRef::try_from(key.as_slice())
+        .map_err(|e| AdacError::Encoding(e.to_string()))?;
 
     let oid = if pk.algorithm.oid != elliptic_curve::ALGORITHM_OID {
         pk.algorithm.oid

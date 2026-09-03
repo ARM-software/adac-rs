@@ -17,8 +17,8 @@ pub fn import_public_key(
     if public_key.len() != adac::rsa_modulus_size(key_type)? {
         return Err(AdacError::InvalidLength);
     }
-    let modulus = rsa::BigUint::from_bytes_be(public_key);
-    adac::validate_rsa_modulus_bits(key_type, modulus.bits())?;
+    let modulus = rsa::BoxedUint::from_be_slice_vartime(public_key);
+    adac::validate_rsa_modulus_bits(key_type, modulus.bits() as usize)?;
 
     let exponent = adac::RSA_PUBLIC_EXPONENT.to_vec();
     let pubkey_template = vec![
@@ -75,7 +75,7 @@ pub fn load_public_key(
             "Missing RSA Modulus".to_string(),
         ))?;
     let modulus = if let Attribute::Modulus(modulus) = modulus {
-        rsa::BigUint::from_bytes_be(modulus.as_slice())
+        rsa::BoxedUint::from_be_slice_vartime(modulus.as_slice())
     } else {
         return Err(AdacError::CryptoProviderError(
             "Invalid RSA Modulus".to_string(),
@@ -91,14 +91,14 @@ pub fn load_public_key(
         ))?;
     let exponent = if let Attribute::PublicExponent(exponent) = exponent {
         adac::validate_rsa_public_exponent(exponent.as_slice())?;
-        rsa::BigUint::from_bytes_be(exponent.as_slice())
+        rsa::BoxedUint::from_be_slice_vartime(exponent.as_slice())
     } else {
         return Err(AdacError::CryptoProviderError(
             "Invalid RSA Exponent".to_string(),
         ));
     };
 
-    adac::validate_rsa_modulus_bits(key_type, modulus.bits())?;
+    adac::validate_rsa_modulus_bits(key_type, modulus.bits() as usize)?;
 
     Ok(rsa::RsaPublicKey::new(modulus, exponent)
         .map_err(|e| AdacError::Encoding(format!("Rebuilding RSA public-key {}", e)))?

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BSD-3-Clause
 
 use adac::AdacError;
-use ecdsa::signature::digest::{ExtendableOutput, Update};
+use digest::{ExtendableOutput, Update};
 use ed448::pkcs8::DecodePrivateKey;
 use ed25519::pkcs8::EncodePublicKey;
 
@@ -27,7 +27,7 @@ pub fn load_key(key: &[u8]) -> Result<([u8; 57], Option<[u8; 57]>, Option<Vec<u8
 }
 
 pub fn shake256_digest(data: &[u8]) -> Vec<u8> {
-    let mut hasher = sha3::Shake256::default();
+    let mut hasher = shake::Shake256::default();
     hasher.update(data);
     let mut h = vec![0u8; 64];
     hasher.finalize_xof_into(&mut h);

@@ -53,7 +53,7 @@ impl AdacPublicKey {
                     p256::NistP256::OID | p384::NistP384::OID | p521::NistP521::OID => {
                         ec_dsa::from_spki(spki)
                     }
-                    sm2::Sm2::OID => sm::from_spki(spki),
+                    crate::SM2_OID => sm::from_spki(spki),
                     _ => Err(AdacError::Encoding("Unsupported curve".to_string())),
                 }
             }
@@ -65,7 +65,7 @@ impl AdacPublicKey {
             crate::ML_DSA_65_OID => self::ml_dsa::from_spki(MlDsa65Sha384, spki),
             // ml_dsa::MlDsa87::ALGORITHM_IDENTIFIER
             crate::ML_DSA_87_OID => self::ml_dsa::from_spki(MlDsa87Sha512, spki),
-            rsa::ALGORITHM_OID => rsa::from_spki(spki),
+            crate::RSA_OID => rsa::from_spki(spki),
             _ => Err(AdacError::UnsupportedAlgorithm),
         }
     }

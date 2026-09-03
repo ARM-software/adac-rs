@@ -4,9 +4,10 @@
 use crate::public::AdacPublicKey;
 use adac::KeyOptions::SmSm2Sm3;
 use adac::{AdacError, KeyOptions};
-use der::{Encode, oid::AssociatedOid};
-use pkcs8::DecodePrivateKey;
-use spki::{DecodePublicKey, EncodePublicKey};
+use sm2::elliptic_curve::pkcs8::{
+    DecodePrivateKey, DecodePublicKey, EncodePublicKey,
+    der::{Encode, oid::AssociatedOid},
+};
 
 pub const DISTID: &str = "adac@arm.com";
 
@@ -22,7 +23,7 @@ pub fn from_spki(spki: &[u8]) -> Result<AdacPublicKey, AdacError> {
         key_type: SmSm2Sm3,
         spki,
         adac,
-        oid: elliptic_curve::ALGORITHM_OID.to_der().unwrap(),
+        oid: sm2::elliptic_curve::ALGORITHM_OID.to_der().unwrap(),
         curve: Some(sm2::Sm2::OID.to_der().unwrap()),
     })
 }
@@ -42,7 +43,7 @@ pub fn from_adac(key_type: KeyOptions, adac: &[u8]) -> Result<AdacPublicKey, Ada
         key_type,
         spki,
         adac,
-        oid: elliptic_curve::ALGORITHM_OID.to_der().unwrap(),
+        oid: sm2::elliptic_curve::ALGORITHM_OID.to_der().unwrap(),
         curve: Some(sm2::Sm2::OID.to_der().unwrap()),
     })
 }

@@ -6,15 +6,15 @@ use adac::{AdacError, KeyOptions, KeyOptions::*};
 use der::asn1::{BitString, ObjectIdentifier};
 use der::oid::AssociatedOid;
 use der::{Decode, Encode, SliceReader};
+use elliptic_curve::pkcs8::DecodePrivateKey;
 use elliptic_curve::{
-    AffinePoint, Curve, CurveArithmetic, JwkParameters, PublicKey, SecretKey,
+    AffinePoint, Curve, CurveArithmetic, PublicKey, SecretKey,
     point::PointCompression,
-    sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint, ValidatePublicKey},
+    sec1::{FromSec1Point, ModulusSize, ToSec1Point, ValidatePublicKey},
 };
 use p256::NistP256;
 use p384::NistP384;
 use p521::NistP521;
-use pkcs8::DecodePrivateKey;
 use spki::{DecodePublicKey, EncodePublicKey, SubjectPublicKeyInfo};
 
 fn adac_from_uncompressed_sec1(sec1: &[u8]) -> Result<Vec<u8>, AdacError> {
@@ -31,19 +31,21 @@ fn adac_from_uncompressed_sec1(sec1: &[u8]) -> Result<Vec<u8>, AdacError> {
 }
 
 pub trait CurveAbstraction {
-    type C: AssociatedOid + JwkParameters + CurveArithmetic + PointCompression;
+    type C: AssociatedOid + CurveArithmetic + PointCompression;
+
+    const NAME: &'static str;
 
     fn from_sec1_bytes(sec1: &[u8]) -> Result<(Vec<u8>, Option<Vec<u8>>), AdacError>
     where
         <Self::C as Curve>::FieldBytesSize: ModulusSize,
-        <Self::C as CurveArithmetic>::AffinePoint: FromEncodedPoint<Self::C>,
-        <Self::C as CurveArithmetic>::AffinePoint: ToEncodedPoint<Self::C>,
+        <Self::C as CurveArithmetic>::AffinePoint: FromSec1Point<Self::C>,
+        <Self::C as CurveArithmetic>::AffinePoint: ToSec1Point<Self::C>,
     {
         let spki = PublicKey::<Self::C>::from_sec1_bytes(sec1)
             .map_err(|e| {
                 AdacError::Encoding(format!(
                     "Decoding {} public-key from SEC1: {}",
-                    Self::C::CRV,
+                    Self::NAME,
                     e
                 ))
             })?
@@ -56,16 +58,16 @@ pub trait CurveAbstraction {
     fn from_spki(spki: &[u8]) -> Result<(Vec<u8>, Vec<u8>, Option<Vec<u8>>), AdacError>
     where
         <Self::C as Curve>::FieldBytesSize: ModulusSize,
-        <Self::C as CurveArithmetic>::AffinePoint: FromEncodedPoint<Self::C>,
-        <Self::C as CurveArithmetic>::AffinePoint: ToEncodedPoint<Self::C>,
+        <Self::C as CurveArithmetic>::AffinePoint: FromSec1Point<Self::C>,
+        <Self::C as CurveArithmetic>::AffinePoint: ToSec1Point<Self::C>,
     {
         let spki = PublicKey::<Self::C>::from_public_key_der(spki)
-            .map_err(|e| AdacError::Encoding(format!("Decoding {} SPKI: {}", Self::C::CRV, e)))?;
+            .map_err(|e| AdacError::Encoding(format!("Decoding {} SPKI: {}", Self::NAME, e)))?;
         let sec1 = spki.to_sec1_bytes();
         let adac = adac_from_uncompressed_sec1(sec1.as_ref())?;
         let spki = spki
             .to_public_key_der()
-            .map_err(|e| AdacError::Encoding(format!("Re-encoding {} SPKI: {}", Self::C::CRV, e)))?
+            .map_err(|e| AdacError::Encoding(format!("Re-encoding {} SPKI: {}", Self::NAME, e)))?
             .to_vec();
         Ok((spki, adac, Some(Self::C::OID.to_der().unwrap())))
     }
@@ -73,14 +75,17 @@ pub trait CurveAbstraction {
 
 impl CurveAbstraction for p256::NistP256 {
     type C = p256::NistP256;
+    const NAME: &'static str = "P-256";
 }
 
 impl CurveAbstraction for p384::NistP384 {
     type C = p384::NistP384;
+    const NAME: &'static str = "P-384";
 }
 
 impl CurveAbstraction for p521::NistP521 {
     type C = p521::NistP521;
+    const NAME: &'static str = "P-521";
 }
 
 pub fn from_adac(key_type: KeyOptions, adac: &[u8]) -> Result<AdacPublicKey, AdacError> {
@@ -137,7 +142,7 @@ pub fn from_spki(spki: &[u8]) -> Result<AdacPublicKey, AdacError> {
 pub fn get_adac_from_spki<C>(public_key: &Vec<u8>) -> Result<Vec<u8>, AdacError>
 where
     C: Curve + CurveArithmetic + AssociatedOid + PointCompression,
-    AffinePoint<C>: FromEncodedPoint<C> + ToEncodedPoint<C>,
+    AffinePoint<C>: FromSec1Point<C> + ToSec1Point<C>,
     <C as Curve>::FieldBytesSize: ModulusSize,
 {
     let k = PublicKey::<C>::from_public_key_der(public_key.as_slice())
@@ -149,7 +154,7 @@ where
 pub fn spki_from_pkcs8<C>(key: &Vec<u8>) -> Result<Vec<u8>, AdacError>
 where
     C: Curve + CurveArithmetic + AssociatedOid + ValidatePublicKey + PointCompression,
-    AffinePoint<C>: FromEncodedPoint<C> + ToEncodedPoint<C>,
+    AffinePoint<C>: FromSec1Point<C> + ToSec1Point<C>,
     <C as Curve>::FieldBytesSize: ModulusSize,
 {
     let k = SecretKey::<C>::from_pkcs8_der(key.as_slice())
@@ -164,7 +169,7 @@ where
 pub fn adac_from_pkcs8<C>(key: &Vec<u8>) -> Result<Vec<u8>, AdacError>
 where
     C: Curve + CurveArithmetic + AssociatedOid + ValidatePublicKey + PointCompression,
-    AffinePoint<C>: FromEncodedPoint<C> + ToEncodedPoint<C>,
+    AffinePoint<C>: FromSec1Point<C> + ToSec1Point<C>,
     <C as Curve>::FieldBytesSize: ModulusSize,
 {
     let k = SecretKey::<C>::from_pkcs8_der(key.as_slice())
