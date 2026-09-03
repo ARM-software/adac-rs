@@ -5,8 +5,8 @@ use adac::{AdacError, KeyOptions};
 use cryptoki::mechanism::Mechanism;
 use cryptoki::object::{Attribute, KeyType, ObjectClass, ObjectHandle};
 use cryptoki::session::Session;
-use elliptic_curve::pkcs8::{EncodePublicKey, PrivateKeyInfo};
-use rsa::pkcs8::DecodePrivateKey;
+use pkcs8::PrivateKeyInfoRef;
+use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
 use rsa::traits::{PrivateKeyParts, PublicKeyParts};
 use sha2::Digest;
 use zeroize::Zeroizing;
@@ -15,8 +15,8 @@ fn validate_private_key_size(
     key_type: KeyOptions,
     key: &rsa::RsaPrivateKey,
 ) -> Result<(), AdacError> {
-    adac::validate_rsa_modulus_bits(key_type, key.n().bits())?;
-    adac::validate_rsa_public_exponent(&key.e().to_bytes_be())
+    adac::validate_rsa_modulus_bits(key_type, key.n().bits() as usize)?;
+    adac::validate_rsa_public_exponent(&key.e_bytes())
 }
 
 pub fn generate_keypair(
@@ -58,10 +58,10 @@ pub fn import_key(
     key_type: KeyOptions,
     key: Zeroizing<Vec<u8>>,
 ) -> Result<(String, Vec<u8>, Vec<u8>, ObjectHandle, ObjectHandle), AdacError> {
-    let pk =
-        PrivateKeyInfo::try_from(key.as_slice()).map_err(|e| AdacError::Encoding(e.to_string()))?;
+    let pk = PrivateKeyInfoRef::try_from(key.as_slice())
+        .map_err(|e| AdacError::Encoding(e.to_string()))?;
 
-    if pk.algorithm.oid != rsa::pkcs1::ALGORITHM_OID {
+    if pk.algorithm.oid != adac_crypto::RSA_OID {
         return Err(AdacError::UnsupportedAlgorithm);
     }
 
@@ -83,8 +83,8 @@ pub fn import_key(
         Attribute::Verify(true),
         Attribute::KeyType(KeyType::RSA),
         Attribute::Class(ObjectClass::PUBLIC_KEY),
-        Attribute::PublicExponent(pubk.e().to_bytes_be()),
-        Attribute::Modulus(pubk.n().to_bytes_be()),
+        Attribute::PublicExponent(pubk.e_bytes().into_vec()),
+        Attribute::Modulus(pubk.n_bytes().into_vec()),
         Attribute::Label(kid.clone().into_bytes()),
         Attribute::Id(key_id.to_vec()),
     ];
@@ -101,20 +101,23 @@ pub fn import_key(
         Attribute::Sign(true),
         Attribute::KeyType(KeyType::RSA),
         Attribute::Class(ObjectClass::PRIVATE_KEY),
-        Attribute::PublicExponent(pubk.e().to_bytes_be()),
-        Attribute::Modulus(pubk.n().to_bytes_be()),
-        Attribute::PrivateExponent(pk.d().to_bytes_be()),
+        Attribute::PublicExponent(pubk.e_bytes().into_vec()),
+        Attribute::Modulus(pubk.n_bytes().into_vec()),
+        Attribute::PrivateExponent(pk.d().to_be_bytes_trimmed_vartime().into_vec()),
         Attribute::Label(kid.clone().into_bytes()),
         Attribute::Id(key_id.to_vec()),
     ];
 
-    if pk.primes().len() >= 2 && pk.dp().is_some() && pk.dq().is_some() && pk.qinv().is_some() {
+    if pk.primes().len() >= 2
+        && let (Some(dp), Some(dq), Some(qinv)) = (pk.dp(), pk.dq(), pk.qinv())
+    {
+        let coefficient = qinv.retrieve();
         let mut crt_template = vec![
-            Attribute::Prime1(pk.primes()[0].to_bytes_be()),
-            Attribute::Prime2(pk.primes()[1].to_bytes_be()),
-            Attribute::Exponent1(pk.dp().unwrap().to_bytes_be()),
-            Attribute::Exponent2(pk.dq().unwrap().to_bytes_be()),
-            Attribute::Coefficient(pk.qinv().unwrap().to_bytes_be().1),
+            Attribute::Prime1(pk.primes()[0].to_be_bytes_trimmed_vartime().into_vec()),
+            Attribute::Prime2(pk.primes()[1].to_be_bytes_trimmed_vartime().into_vec()),
+            Attribute::Exponent1(dp.to_be_bytes_trimmed_vartime().into_vec()),
+            Attribute::Exponent2(dq.to_be_bytes_trimmed_vartime().into_vec()),
+            Attribute::Coefficient(coefficient.to_be_bytes_trimmed_vartime().into_vec()),
         ];
         private_key_template.append(&mut crt_template);
     }

@@ -13,9 +13,8 @@ use ml_dsa::{MlDsa44, MlDsa65, MlDsa87, MlDsaParams};
 use p256::NistP256;
 use p384::NistP384;
 use p521::NistP521;
-use pkcs8::{PrivateKeyInfo, SecretDocument};
+use pkcs8::{PrivateKeyInfoRef, SecretDocument};
 use rsa::{pkcs8::DecodePrivateKey, traits::PublicKeyParts};
-use sec1::DecodeEcPrivateKey;
 use std::{fs, path::Path};
 use zeroize::Zeroizing;
 
@@ -79,8 +78,8 @@ where
     K: Into<PrivateKeyBytes>,
 {
     let k = k.into();
-    let pk =
-        PrivateKeyInfo::try_from(k.as_slice()).map_err(|e| AdacError::Encoding(e.to_string()))?;
+    let pk = PrivateKeyInfoRef::try_from(k.as_slice())
+        .map_err(|e| AdacError::Encoding(e.to_string()))?;
 
     let key_type = match pk.algorithm.oid {
         elliptic_curve::ALGORITHM_OID => {
@@ -92,7 +91,7 @@ where
                 p256::NistP256::OID => EcdsaP256Sha256,
                 p384::NistP384::OID => EcdsaP384Sha384,
                 p521::NistP521::OID => EcdsaP521Sha512,
-                sm2::Sm2::OID => SmSm2Sm3,
+                crate::SM2_OID => SmSm2Sm3,
                 _ => return Err(AdacError::UnsupportedAlgorithm),
             }
         }
@@ -101,12 +100,12 @@ where
         crate::ML_DSA_87_OID => MlDsa87Sha512,
         ed25519::pkcs8::ALGORITHM_OID => Ed25519Sha512,
         crate::ED_448_OID => Ed448Shake256,
-        rsa::pkcs1::ALGORITHM_OID => {
+        crate::RSA_OID => {
             let key = rsa::RsaPrivateKey::from_pkcs8_der(k.as_slice()).map_err(|e| {
                 AdacError::Encoding(format!("Error decoding RSA key from PKCS#8: {}", e))
             })?;
-            adac::validate_rsa_public_exponent(&key.e().to_bytes_be())?;
-            adac::rsa_key_type_from_modulus_bits(key.n().bits())?.0
+            adac::validate_rsa_public_exponent(&key.e_bytes())?;
+            adac::rsa_key_type_from_modulus_bits(key.n().bits() as usize)?.0
         }
         _ => return Err(AdacError::UnsupportedAlgorithm),
     };
@@ -129,9 +128,20 @@ where
     let der = Zeroizing::new(pem.into_contents());
     match tag.as_str() {
         "EC PRIVATE KEY" => {
-            let sd: SecretDocument = DecodeEcPrivateKey::from_sec1_der(&der).map_err(|e| {
+            let ec_key = sec1::EcPrivateKey::try_from(der.as_slice()).map_err(|e| {
                 AdacError::Encoding(format!("Error decoding EC Private Key: {}", e))
             })?;
+            let parameters = ec_key.parameters.ok_or_else(|| {
+                AdacError::Encoding("EC private key is missing curve parameters".to_string())
+            })?;
+            let algorithm = pkcs8::AlgorithmIdentifierRef {
+                oid: elliptic_curve::ALGORITHM_OID,
+                parameters: Some((&parameters).into()),
+            };
+            let private_key = der::asn1::OctetStringRef::new(&der)
+                .map_err(|e| AdacError::Encoding(e.to_string()))?;
+            let sd = SecretDocument::try_from(PrivateKeyInfoRef::new(algorithm, private_key))
+                .map_err(|e| AdacError::Encoding(e.to_string()))?;
             pkcs8_parse_key(sd.to_bytes().to_vec())
         }
         "PRIVATE KEY" => pkcs8_parse_key(der),

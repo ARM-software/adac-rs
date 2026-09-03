@@ -9,21 +9,19 @@ pub mod sm;
 use adac::{AdacError, KeyOptions, KeyOptions::*, traits::*};
 use adac_crypto::public::{self, ml_dsa::KeyConverter};
 use digest::{Digest, Update};
-use ecdsa::signature::DigestVerifier;
-use ecdsa::signature::hazmat::PrehashSigner;
 use ecdsa::{Signature, SigningKey, VerifyingKey};
 use ed448_goldilocks_plus::PreHasherXof;
-use ml_dsa::pkcs8::DecodePrivateKey as _;
 use ml_dsa::{MlDsa44, MlDsa65, MlDsa87};
 use p256::NistP256;
 use p384::NistP384;
 use p521::NistP521;
 use pkcs8::DecodePrivateKey;
-use rsa::signature::{RandomizedSigner, SignatureEncoding, Verifier};
+use rsa::signature::{RandomizedSigner as _, SignatureEncoding, Verifier as _};
 use rsa::traits::PublicKeyParts;
 use sha2::{Sha256, Sha384, Sha512};
-use sha3::Shake256;
-use signature::Signer;
+use shake::Shake256;
+use signature::Signer as _;
+use signature::hazmat::{PrehashSigner, PrehashVerifier};
 use zeroize::Zeroizing;
 
 pub struct RustCryptoKey {
@@ -37,13 +35,16 @@ pub struct RustCryptoProvider {
     current_key: Option<RustCryptoKey>,
 }
 
-fn rsa_public_modulus(key_type: KeyOptions, public_key: &[u8]) -> Result<rsa::BigUint, AdacError> {
+fn rsa_public_modulus(
+    key_type: KeyOptions,
+    public_key: &[u8],
+) -> Result<rsa::BoxedUint, AdacError> {
     if public_key.len() != adac::rsa_modulus_size(key_type)? {
         return Err(AdacError::InvalidLength);
     }
 
-    let modulus = rsa::BigUint::from_bytes_be(public_key);
-    adac::validate_rsa_modulus_bits(key_type, modulus.bits())?;
+    let modulus = rsa::BoxedUint::from_be_slice_vartime(public_key);
+    adac::validate_rsa_modulus_bits(key_type, modulus.bits() as usize)?;
     Ok(modulus)
 }
 
@@ -51,8 +52,8 @@ fn validate_rsa_private_key_size(
     key_type: KeyOptions,
     key: &rsa::RsaPrivateKey,
 ) -> Result<(), AdacError> {
-    adac::validate_rsa_modulus_bits(key_type, key.n().bits())?;
-    adac::validate_rsa_public_exponent(&key.e().to_bytes_be())
+    adac::validate_rsa_modulus_bits(key_type, key.n().bits() as usize)?;
+    adac::validate_rsa_public_exponent(&key.e_bytes())
 }
 
 impl RustCryptoProvider {
@@ -89,9 +90,10 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 let sig = p256::ecdsa::Signature::try_from(signature)
                     .map_err(|e| AdacError::Encoding(format!("Decoding signature: {}", e)))?;
 
-                let hash = sha2::Sha256::new().chain_update(data);
-                <VerifyingKey<NistP256> as DigestVerifier<sha2::Sha256, Signature<NistP256>>>::verify_digest(&p, hash, &sig)
-                    .map_err(|e| AdacError::CryptoProviderError(format!("Verifying signature: {}", e)))?
+                let hash = sha2::Sha256::digest(data);
+                p.verify_prehash(&hash, &sig).map_err(|e| {
+                    AdacError::CryptoProviderError(format!("Verifying signature: {}", e))
+                })?
             }
             EcdsaP384Sha384 => {
                 let mut pubkey = vec![0x04u8];
@@ -101,9 +103,10 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 let sig = p384::ecdsa::Signature::try_from(signature)
                     .map_err(|e| AdacError::Encoding(format!("Decoding signature: {}", e)))?;
 
-                let hash = sha2::Sha384::new().chain_update(data);
-                <VerifyingKey<NistP384> as DigestVerifier<sha2::Sha384, Signature<NistP384>>>::verify_digest(&p, hash, &sig)
-                    .map_err(|e| AdacError::CryptoProviderError(format!("Verifying signature: {}", e)))?
+                let hash = sha2::Sha384::digest(data);
+                p.verify_prehash(&hash, &sig).map_err(|e| {
+                    AdacError::CryptoProviderError(format!("Verifying signature: {}", e))
+                })?
             }
             EcdsaP521Sha512 => {
                 let mut pubkey = vec![0x04u8];
@@ -113,11 +116,8 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 let sig = p521::ecdsa::Signature::try_from(signature)
                     .map_err(|e| AdacError::Encoding(format!("Decoding signature: {}", e)))?;
 
-                let hash = sha2::Sha512::new().chain_update(data);
-                <VerifyingKey<NistP521> as ecdsa::signature::hazmat::PrehashVerifier<
-                    Signature<NistP521>,
-                >>::verify_prehash(&p, hash.finalize().as_slice(), &sig)
-                .map_err(|e| {
+                let hash = sha2::Sha512::digest(data);
+                p.verify_prehash(&hash, &sig).map_err(|e| {
                     AdacError::CryptoProviderError(format!("Verifying signature: {}", e))
                 })?
             }
@@ -190,11 +190,11 @@ impl AdacCryptoProvider for RustCryptoProvider {
             }
             Rsa3072Sha256 | Rsa4096Sha256 => {
                 let n = rsa_public_modulus(key_type, public_key)?;
-                let f4 = rsa::BigUint::from_bytes_be(&[0x01u8, 0x00u8, 0x01u8]);
+                let f4 = rsa::BoxedUint::from_be_slice_vartime(&adac::RSA_PUBLIC_EXPONENT);
                 let pk = rsa::RsaPublicKey::new(n, f4).map_err(|e| {
                     AdacError::Encoding(format!("Rebuilding RSA public key: {}", e))
                 })?;
-                let vk = rsa::pss::VerifyingKey::<Sha256>::new(pk);
+                let vk = rsa::pss::VerifyingKey::<rsa::sha2::Sha256>::new(pk);
                 let sig = rsa::pss::Signature::try_from(signature)
                     .map_err(|e| AdacError::Encoding(format!("Decoding signature: {}", e)))?;
                 vk.verify(data, &sig).map_err(|e| {
@@ -340,7 +340,7 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 let k = rsa::RsaPrivateKey::from_pkcs8_der(current_key.key.as_slice())
                     .map_err(|e| AdacError::Encoding(format!("Decoding private key: {}", e)))?;
                 validate_rsa_private_key_size(key_type, &k)?;
-                let sk = rsa::pss::SigningKey::<Sha256>::new(k);
+                let sk = rsa::pss::SigningKey::<rsa::sha2::Sha256>::new(k);
                 if self.deterministic {
                     #[cfg(any(test, feature = "hazmat-deterministic"))]
                     {
@@ -354,7 +354,7 @@ impl AdacCryptoProvider for RustCryptoProvider {
                         ));
                     }
                 } else {
-                    let mut rng = rand::thread_rng();
+                    let mut rng = rand::rng();
                     sk.sign_with_rng(&mut rng, data).to_vec()
                 }
             }
@@ -366,8 +366,9 @@ impl AdacCryptoProvider for RustCryptoProvider {
                 if self.deterministic {
                     sk.sign(data).to_vec()
                 } else {
-                    let mut rng = rand::thread_rng();
-                    sk.sign_with_rng(&mut rng, data).to_vec()
+                    sk.try_sign_with_rng(&mut rand::rng(), data)
+                        .map_err(|e| AdacError::CryptoProviderError(format!("SM2 signing: {}", e)))?
+                        .to_vec()
                 }
             }
             _ => return Err(AdacError::UnsupportedAlgorithm),

@@ -24,9 +24,8 @@ fn public_key_from_pkcs8_private_key(
 ) -> Result<[u8; adac::ED448_PUBLIC_KEY_SIZE_UNPADDED], AdacError> {
     let k = ed448::KeypairBytes::from_pkcs8_der(key)
         .map_err(|e| AdacError::Encoding(format!("Error decoding EdDSA key from PKCS#8: {}", e)))?;
-    let signing_key = ed448_goldilocks_plus::SigningKey::from(
-        ed448_goldilocks_plus::ScalarBytes::from_slice(&k.secret_key),
-    );
+    let signing_key = ed448_goldilocks_plus::SigningKey::try_from(k.secret_key.as_slice())
+        .map_err(|e| AdacError::Encoding(e.to_string()))?;
     let public_key = signing_key.verifying_key();
 
     if let Some(pkcs8_public_key) = k.public_key {

@@ -523,7 +523,7 @@ pub fn validate_token_signed_by_last_certificate(
 mod tests {
     use super::*;
     use adac::{AdacError, CertificateHeader, TokenHeader, traits::AdacKeyFormat};
-    use p256::elliptic_curve::sec1::ToEncodedPoint;
+    use p256::elliptic_curve::sec1::ToSec1Point;
 
     struct AcceptingProvider;
 
@@ -560,7 +560,7 @@ mod tests {
 
     fn valid_public_key() -> Vec<u8> {
         let secret_key = p256::SecretKey::from_slice(&[1u8; 32]).unwrap();
-        secret_key.public_key().to_encoded_point(false).as_bytes()[1..].to_vec()
+        secret_key.public_key().to_sec1_point(false).as_bytes()[1..].to_vec()
     }
 
     fn certificate_with_public_key(role: CertificateRole, public_key: Vec<u8>) -> AdacCertificate {
