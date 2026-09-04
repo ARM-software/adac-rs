@@ -11,7 +11,7 @@ license = "BSD-3-Clause"
 [dependencies]
 adac = { path = "../adac" }
 adac-crypto = { path = "../adac-crypto" }
-aws-lc-rs = { version = "1.17", features = ["unstable"] }
+aws-lc-rs = { version = "1.18" }
 zeroize = { workspace = true }
 
 [lints.clippy]
