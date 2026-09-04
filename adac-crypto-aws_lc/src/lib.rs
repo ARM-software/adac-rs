@@ -4,7 +4,7 @@
 use adac::{AdacError, KeyOptions, KeyOptions::*, traits::*};
 use aws_lc_rs::encoding::AsDer;
 use aws_lc_rs::rand::SystemRandom;
-use aws_lc_rs::unstable::signature::{
+use aws_lc_rs::signature::{
     ML_DSA_44, ML_DSA_65, ML_DSA_87, PqdsaKeyPair, PqdsaVerificationAlgorithm,
 };
 use aws_lc_rs::{digest::*, signature::*};
@@ -49,9 +49,9 @@ impl AwsLcCryptoProvider {
         let key = Zeroizing::new(key.to_vec());
 
         let alg = match key_type {
-            MlDsa44Sha256 => &aws_lc_rs::unstable::signature::ML_DSA_44_SIGNING,
-            MlDsa65Sha384 => &aws_lc_rs::unstable::signature::ML_DSA_65_SIGNING,
-            MlDsa87Sha512 => &aws_lc_rs::unstable::signature::ML_DSA_87_SIGNING,
+            MlDsa44Sha256 => &aws_lc_rs::signature::ML_DSA_44_SIGNING,
+            MlDsa65Sha384 => &aws_lc_rs::signature::ML_DSA_65_SIGNING,
+            MlDsa87Sha512 => &aws_lc_rs::signature::ML_DSA_87_SIGNING,
             _ => return Err(AdacError::UnsupportedAlgorithm),
         };
 
@@ -138,15 +138,9 @@ impl AdacCryptoProvider for AwsLcCryptoProvider {
             }
             MlDsa44Sha256 | MlDsa65Sha384 | MlDsa87Sha512 => {
                 let (alg, mut pad) = match key_type {
-                    MlDsa44Sha256 => (&aws_lc_rs::unstable::signature::ML_DSA_44_SIGNING, vec![]),
-                    MlDsa65Sha384 => (
-                        &aws_lc_rs::unstable::signature::ML_DSA_65_SIGNING,
-                        vec![0u8; 3],
-                    ),
-                    MlDsa87Sha512 => (
-                        &aws_lc_rs::unstable::signature::ML_DSA_87_SIGNING,
-                        vec![0u8; 1],
-                    ),
+                    MlDsa44Sha256 => (&aws_lc_rs::signature::ML_DSA_44_SIGNING, vec![]),
+                    MlDsa65Sha384 => (&aws_lc_rs::signature::ML_DSA_65_SIGNING, vec![0u8; 3]),
+                    MlDsa87Sha512 => (&aws_lc_rs::signature::ML_DSA_87_SIGNING, vec![0u8; 1]),
                     _ => return Err(AdacError::UnsupportedAlgorithm),
                 };
 
